@@ -2,26 +2,27 @@ name: spectrome
 channels:
   - conda-forge
 dependencies:
-  - python=3 #or any python 3 should work
+  # The legacy deepdish dependency requires NumPy < 2.
+  - python=3.11
   - pip
-  - matplotlib
-  - numpy
-  - scipy
-  - pandas
+  - matplotlib=3.7
+  - numpy=1.26
+  - scipy=1.11
+  - pandas=2.1
+  - scikit-learn=1.3
+  - nitime
+  - tqdm
+  - jupyter
+  - ipykernel
 #  - nose # for unit testing
 #  - nodejs==11.9.0
 #  - ipywidgets
 #  - vtk==8.1.1
   - pip:
-    - deepdish
 #    - emcee==3.0rc2
 #    - great-expectations
 #    - mayavi
 #    - nibabel
-    - nitime
 #    - PyQt5
-    - python-csv
 #    - pysurfer
-    - sklearn
-    - tqdm==4.30.0
-    - jupyter
+    - deepdish==0.3.7
