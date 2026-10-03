@@ -3,93 +3,128 @@
 import torch
 
 
-def network_transfer_local_alpha_torch(brain, parameters, w, use_smalleigs=True):
-    """Match ``network_transfer_local_alpha`` at one angular frequency.
-
-    ``brain`` supplies ``reducedConnectome`` and ``distance_matrix`` in the
-    same node order as the NumPy function. The five return values are Torch
-    tensors in the same order as that function. This preserves its modal
-    readout and numerical conventions; it does not use the equations in the
-    separate deconvolution Torch reference.
-    """
-
-    # convert to torhc tensors & set device to match C
+def prepare_graph_torch(brain, parameters, w, use_smalleigs=True):
+    """Compute the frequency-specific delayed graph and its eigendecomposition."""
     C = torch.as_tensor(brain.reducedConnectome, dtype=torch.float64)
     D = torch.as_tensor(brain.distance_matrix, dtype=torch.float64, device=C.device)
-    w = torch.as_tensor(w, dtype=torch.float64, device=C.device) # this is omega = 2(pi)f, not frequency
+    w = torch.as_tensor(w, dtype=torch.float64, device=C.device)
+    speed = torch.as_tensor(parameters["speed"], dtype=torch.float64, device=C.device)
+    alpha = torch.as_tensor(parameters["alpha"], dtype=torch.float64, device=C.device)
 
-    # extract parameters and convert to torch tensors on the same device as C
-    params = {
-        name: torch.as_tensor(parameters[name], dtype=torch.float64, device=C.device)
-        for name in ("tau_e", "tau_i", "speed", "gei", "gii", "tauC", "alpha")
-    }
-    tau_e = params["tau_e"]
-    tau_i = params["tau_i"]
-    speed = params["speed"]
-    gei = params["gei"]
-    gii = params["gii"]
-    tauC = params["tauC"]
-    alpha = params["alpha"]
-
-
-    zero_thr = 0.05 # numerical safeguard
-    a = 0.5 # used as a weight for H_total
-
-    # compute the degree of each node and filter out nodes with low degree; essentially prerprocessing / filtering the connectome beforehand (this is like an implementation choice)
-    rowdegree = torch.sum(C, dim=1) # 
-    coldegree = torch.sum(C, dim=0)
-    qind = rowdegree + coldegree < 0.2 * torch.mean(rowdegree + coldegree)
-    # need torch.inf b/c this could approach 1/sqrt(infinity) = 0
-    rowdegree = torch.where(qind, torch.inf, rowdegree)
-    coldegree = torch.where(qind, torch.inf, coldegree)
+    rowdegree = C.sum(dim=1)
+    coldegree = C.sum(dim=0)
+    low_degree = rowdegree + coldegree < 0.2 * (rowdegree + coldegree).mean()
+    rowdegree = torch.where(low_degree, torch.inf, rowdegree)
+    coldegree = torch.where(low_degree, torch.inf, coldegree)
 
     nroi = C.shape[0]
-    K = round(2 / 3 * nroi) if use_smalleigs is True else nroi # trunucating eigenvalues to 2/3 of the total number of ROIs (if enabled)
-
-    Tau = 0.001 * D / speed
-    Cc = C * torch.exp(-1j * Tau * w)
-
-    # compute complex laplacian matrix L = I - alpha * D^(-1/2) * Cc * D^(-1/2)
-    L2 = 1 / (torch.sqrt(rowdegree * coldegree) + torch.finfo(torch.float64).eps)
+    K = round(2 / 3 * nroi) if use_smalleigs else nroi
+    tau = 0.001 * D / speed
+    Cc = C * torch.exp(-1j * tau * w)
+    degree_scale = 1 / (
+        torch.sqrt(rowdegree * coldegree) + torch.finfo(torch.float64).eps
+    )
     L = torch.eye(nroi, dtype=torch.complex128, device=C.device) - alpha * (
-        torch.diag(L2).to(torch.complex128) @ Cc
+        torch.diag(degree_scale).to(torch.complex128) @ Cc
     )
 
-    # eigenvalue decomposition of the complex laplacian matrix L
-    d, v = torch.linalg.eig(L)
-    eig_ind = torch.argsort(torch.abs(d))
-    eigenvalues = d[eig_ind] 
-    eigenvectors = v[:, eig_ind][:, :K] # trunucate based on K (calculated earlier)
-   
-   # phase shift for consistency with numpy code
+    values, vectors = torch.linalg.eig(L)
+    order = torch.argsort(torch.abs(values))
+    eigenvalues = values[order]
+    eigenvectors = vectors[:, order][:, :K]
     anchors = eigenvectors[
         torch.argmax(torch.abs(eigenvectors), dim=0),
         torch.arange(K, device=C.device),
     ]
     eigenvectors = eigenvectors * (anchors / torch.abs(anchors)).conj()[None, :]
 
-    # local filters/responses
-    Fe_local = (1 / tau_e**2) / (1j * w + 1 / tau_e) ** 2 # for MLP 
+    return {
+        "w": w,
+        "eigenvalues": eigenvalues,
+        "eigenvectors": eigenvectors,
+        "K": K,
+    }
+
+
+def evaluate_response_torch(graph, parameters, Fe_graph=None):
+    """Evaluate local and graph responses from a prepared graph."""
+    device = graph["eigenvalues"].device
+    params = {
+        name: torch.as_tensor(parameters[name], dtype=torch.float64, device=device)
+        for name in ("tau_e", "tau_i", "gei", "gii", "tauC", "alpha")
+    }
+    tau_e, tau_i = params["tau_e"], params["tau_i"]
+    gei, gii, tauC, alpha = params["gei"], params["gii"], params["tauC"], params["alpha"]
+    w = graph["w"]
+
+    Fe_local = (1 / tau_e**2) / (1j * w + 1 / tau_e) ** 2
     Fi = (gii / tau_i**2) / (1j * w + 1 / tau_i) ** 2
     Hed = (alpha / tau_e) / (1j * w + alpha / tau_e * Fe_local)
     Hid = (alpha / tau_i) / (1j * w + alpha / tau_i * Fi)
     Heid = gei * Fe_local * Fi / (1 + gei * Fe_local * Fi)
-    Htotal = a * Hed + (1 - a) / 2 * Hid + (1 - a) / 2 * Heid
+    Htotal = 0.5 * Hed + 0.25 * Hid + 0.25 * Heid
 
-    Fe_graph = Fe_local # this is temporary until we get the learned Fe_graph; later it will be a parameter of the function, or we will call the mlp here
+    if Fe_graph is None:
+        Fe_graph = Fe_local
+    else:
+        Fe_graph = torch.as_tensor(Fe_graph, device=device)
+        if Fe_graph.numel() != 1:
+            raise ValueError("Fe_graph must be a scalar complex value")
+        Fe_graph = Fe_graph.reshape(()).to(torch.complex128)
 
-    q1 = (tauC / alpha) * (1j * w + alpha / tauC * Fe_graph * eigenvalues) # we wil replace Fe_local here with a learned filter later on, but for now we are using the same Fe_local as in the original code
-    qthr = zero_thr * torch.max(torch.abs(q1))
-    magq1 = torch.maximum(torch.abs(q1), qthr)
-    q1 = magq1 * torch.exp(1j * torch.angle(q1))
-    frequency_response = Htotal / q1 # how strongly does the graph mode respond to the frequency input? (this is the main output of the forward model)
+    q1 = (tauC / alpha) * (
+        1j * w + alpha / tauC * Fe_graph * graph["eigenvalues"]
+    )
+    q_threshold = 0.05 * torch.max(torch.abs(q1))
+    q1 = torch.maximum(torch.abs(q1), q_threshold) * torch.exp(1j * torch.angle(q1))
+    frequency_response = Htotal / q1
 
+    eigenvectors = graph["eigenvectors"]
+    K = graph["K"]
     model_out = torch.sum(
         eigenvectors[:, 1:K] * frequency_response[None, 1:K], dim=1
     )
     selected = eigenvectors[:, 1:K]
     FCmodel = selected @ torch.diag(frequency_response[1:K] ** 2) @ selected.T
-    den = torch.sqrt(torch.abs(model_out))
-    inv_den = torch.diag(1 / den).to(torch.complex128)
-    FCmodel = inv_den @ FCmodel @ inv_den
-    return frequency_response, eigenvalues, eigenvectors, model_out, FCmodel
+    inverse_denominator = torch.diag(1 / torch.sqrt(torch.abs(model_out))).to(
+        torch.complex128
+    )
+    FCmodel = inverse_denominator @ FCmodel @ inverse_denominator
+
+    return frequency_response, graph["eigenvalues"], eigenvectors, model_out, FCmodel
+
+
+def network_transfer_local_alpha_torch(
+    brain, parameters, w, use_smalleigs=True, Fe_graph=None
+):
+    """Single-frequency compatibility entry point."""
+    graph = prepare_graph_torch(brain, parameters, w, use_smalleigs)
+    return evaluate_response_torch(graph, parameters, Fe_graph)
+
+
+def run_local_coupling_forward_torch(
+    brain, parameters, frequencies, graph_filter_values=None, use_smalleigs=True
+):
+    """Run the local-coupling forward model over frequencies in Hz."""
+    frequencies = list(frequencies)
+    if graph_filter_values is None:
+        graph_filter_values = [None] * len(frequencies)
+    else:
+        graph_filter_values = torch.as_tensor(graph_filter_values)
+        if graph_filter_values.numel() != len(frequencies):
+            raise ValueError("graph_filter_values must contain one value per frequency")
+        graph_filter_values = list(graph_filter_values.reshape(-1).unbind())
+
+    outputs = []
+    for frequency, graph_filter in zip(frequencies, graph_filter_values):
+        w = 2 * torch.pi * torch.as_tensor(frequency, dtype=torch.float64)
+        graph = prepare_graph_torch(brain, parameters, w, use_smalleigs)
+        outputs.append(evaluate_response_torch(graph, parameters, graph_filter))
+
+    if not outputs:
+        raise ValueError("frequencies must contain at least one frequency")
+    model_out = torch.stack([output[3] for output in outputs], dim=-1)
+    frequency_response = torch.stack([output[0] for output in outputs], dim=0)
+    eigenvalues = torch.stack([output[1] for output in outputs], dim=0)
+    eigenvectors = torch.stack([output[2] for output in outputs], dim=0)
+    return model_out, frequency_response, eigenvalues, eigenvectors

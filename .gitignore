@@ -20,3 +20,5 @@ spectrome/data/laplacian_networks
 
 # Local agent planning and private reference material
 /agent_docs/
+
+sgm_stimulate_torch.py
