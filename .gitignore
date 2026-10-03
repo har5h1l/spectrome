@@ -17,3 +17,6 @@ __pycache__
 spectrome/data/SCFC-data
 spectrome/data/downsampled_patients
 spectrome/data/laplacian_networks
+
+# Local agent planning and private reference material
+/agent_docs/
