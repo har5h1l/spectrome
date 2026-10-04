@@ -14,6 +14,9 @@ dependencies:
   - tqdm
   - jupyter
   - ipykernel
+  - pytest>=8,<9
+  # Keep Torch and numerical libraries on the same Conda OpenMP runtime.
+  - pytorch>=2.2,<3
 #  - nose # for unit testing
 #  - nodejs==11.9.0
 #  - ipywidgets

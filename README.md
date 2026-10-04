@@ -37,6 +37,19 @@ You may add `conda-forge` to your list of channels with the command: `conda conf
 
 The default name of the environment is `spectrome`, activate the environment with `source activate spectrome`, and deactivate with `source deactivate` or `conda deactivate`.
 
+The environment includes PyTorch for the differentiable forward model and pytest
+for its checks. To update an existing environment after dependency changes, run
+`conda env update -n spectrome -f environment.yml`, then `conda activate spectrome`.
+From the repository root, verify the Torch path with:
+
+```bash
+python -m pytest spectrome/tests/test_network_transfer_torch.py spectrome/tests/test_historical_torch_parity.py -q
+```
+
+The analytical Torch equations and frequency sweep live in
+`spectrome/forward/network_transfer_torch.py`. `spectrome/learning/` is reserved
+for the future frequency-only learned filter and its training code.
+
 If you want to be able to run `spectrome` from anywhere, just add it's path to your PYTHONPATH. For instance, if you downloaded `spectrome` to `~/Documents/spectrome` do `export PYTHONPATH=$PYTHONPATH:~/Documents/spectrome`. You may have to restart your terminal to make sure this change takes effect.
 
 After completing the set-up for conda environment and `spectrome` path, you may go to the `spectrome` folder and type `jupyter notebook` or `jupyter lab` in your terminal to run the Jupyter notebooks.

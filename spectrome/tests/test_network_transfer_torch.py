@@ -8,6 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from spectrome.forward.network_transfer import network_transfer_local_alpha
+from spectrome.forward.runforward import run_local_coupling_forward
 from spectrome.forward.network_transfer_torch import (
     evaluate_response_torch,
     network_transfer_local_alpha_torch,
@@ -105,7 +106,7 @@ def test_replacement_changes_only_graph_response():
     local = (0.5 * (alpha / te) / (1j * W + alpha / te * fe)
              + 0.25 * (alpha / ti) / (1j * W + alpha / ti * fi)
              + 0.25 * gei * fe * fi / (1 + gei * fe * fi))
-    q = (tc / alpha) * (1j * W + alpha / tc * filter_value * graph.eigenvalues)
+    q = (tc / alpha) * (1j * W + alpha / tc * filter_value * graph["eigenvalues"])
     q = torch.maximum(q.abs(), 0.05 * q.abs().max()) * torch.exp(1j * q.angle())
     torch.testing.assert_close(response * q, torch.full_like(response, local))
     assert not torch.allclose(response, evaluate_response_torch(graph, PARAMETERS)[0])
@@ -113,7 +114,30 @@ def test_replacement_changes_only_graph_response():
         evaluate_response_torch(graph, PARAMETERS, torch.ones(6))
 
 
-def test_filter_gradient_through_sweep_matches_finite_difference():
+def test_sweep_rejects_empty_frequencies_and_filter_count_mismatch():
+    brain = _synthetic_brain()
+    with pytest.raises(ValueError, match="at least one frequency"):
+        run_local_coupling_forward_torch(brain, PARAMETERS, [])
+    with pytest.raises(ValueError, match="one value per frequency"):
+        run_local_coupling_forward_torch(
+            brain, PARAMETERS, [8.0, 10.0], graph_filter_values=[0.4 - 0.3j]
+        )
+
+
+def test_torch_sweep_matches_numpy_wrapper_over_40_frequencies():
+    brain = _synthetic_brain()
+    frequencies = np.linspace(2, 45, 40)
+    expected = run_local_coupling_forward(brain, PARAMETERS, frequencies)
+    actual = run_local_coupling_forward_torch(brain, PARAMETERS, frequencies)
+
+    for numpy_value, torch_value in zip(expected, actual):
+        np.testing.assert_allclose(
+            torch_value.detach().cpu().numpy(), numpy_value, atol=1e-9, rtol=1e-9
+        )
+
+
+@pytest.mark.parametrize("as_sequence", [False, True])
+def test_filter_gradient_through_sweep_matches_finite_difference(as_sequence):
     brain = _synthetic_brain()
     freqs = [8.0, 10.0]
     components = torch.tensor([[0.4, -0.3], [0.3, -0.2]], dtype=torch.float64,
@@ -121,6 +145,8 @@ def test_filter_gradient_through_sweep_matches_finite_difference():
 
     def loss(values):
         filters = torch.complex(values[:, 0], values[:, 1])
+        if as_sequence:
+            filters = list(filters.unbind())
         outputs = run_local_coupling_forward_torch(
             brain, PARAMETERS, freqs, graph_filter_values=filters
         )
@@ -145,3 +171,18 @@ def test_filter_gradient_through_sweep_matches_finite_difference():
         brain, PARAMETERS, freqs, graph_filter_values=filters
     )[0]
     torch.testing.assert_close(cached, uncached)
+
+
+@pytest.mark.parametrize("name", ["alpha", "speed"])
+def test_prepared_graph_rejects_changed_parameters(name):
+    parameters = {
+        **PARAMETERS,
+        name: torch.tensor(PARAMETERS[name], dtype=torch.float64),
+    }
+    graph = prepare_graph_torch(_synthetic_brain(), parameters, W)
+    # Changing a local parameter does not invalidate the graph.
+    evaluate_response_torch(graph, {**parameters, "tau_e": 0.015})
+    # Detect in-place changes too: the graph must own a snapshot of its values.
+    parameters[name].mul_(0.75)
+    with pytest.raises(ValueError, match=f"{name} differs from the prepared graph"):
+        evaluate_response_torch(graph, parameters)
