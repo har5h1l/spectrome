@@ -21,7 +21,7 @@ def prepare_graph_torch(brain, parameters, w, use_smalleigs=True):
     speed = torch.as_tensor(parameters["speed"], dtype=torch.float64, device=C.device)
     alpha = torch.as_tensor(parameters["alpha"], dtype=torch.float64, device=C.device)
 
-    # Compute row/column degrees and filter out nodes with low degree.
+    # Compute row/column degrees and suppress low-degree nodes in normalization.
     rowdegree = C.sum(dim=1)
     coldegree = C.sum(dim=0)
     low_degree = rowdegree + coldegree < 0.2 * (rowdegree + coldegree).mean()

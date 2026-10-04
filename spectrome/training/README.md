@@ -1,8 +1,9 @@
 # Shared graph-filter training
 
 `filters.py` contains `generate_training_data`, `FeGraphMLP`, and
-`predict_spectra`. `train.py` coordinates training and saves the selected model.
-The existing Torch forward file owns the SGM equations.
+`predict_spectra`; its cache-building flow stays visible there. `helpers.py`
+holds input validation and conversion. `train.py` coordinates training and
+saves the selected model. The Torch forward file owns the SGM equations.
 
 ## Prepare and save
 
@@ -48,21 +49,28 @@ the initial MLP is not guaranteed to reproduce the analytical control.
 
 ## Train and save
 
-From the repository root, `python -m spectrome.training.train --help` lists the
-required cache/output paths and explicit settings: `--hidden-sizes`,
-`--omega-scale`, `--epochs`, `--learning-rate`, and `--seed`.
+Edit `CACHE_PATH`, `OUTPUT_PATH`, and the starter settings at the top of
+`train.py`, then run `python -m spectrome.training.train` from the repository
+root. The starter model uses one hidden layer with 8 units, scales omega by
+`2*pi*45` rad/s, and uses Adam with learning rate `1e-3` for up to 100 epochs.
+These settings are a readable starting point, not a validated experiment
+configuration. The cache must still contain an explicitly verified cohort.
 
 The CPU float64 loop uses Adam and one full training-cohort step per epoch.
-Loss is one minus mean subject spectral correlation, with equal region weight
-within each subject. Prediction and empirical spectra undergo magnitude,
-`[1, 2, 5, 2, 1]/11` zero-padded smoothing, square root, and frequency demeaning.
+Training and validation loss are one minus mean subject spectral correlation,
+with equal region weight within each subject. Model and target spectra undergo
+magnitude, `[1, 2, 5, 2, 1]/11` zero-padded smoothing, square root, and frequency
+demeaning.
 A recorded 1e-12 floor before square root keeps gradients finite at zero;
 near-constant or nonfinite regional spectra fail rather than being dropped.
 
-Validation mean correlation selects the checkpoint; test subjects are scored
-after selection. Checkpoints include `state_dict`, architecture/scaling,
-training settings, history, split identities/provenance, raw predictions,
-learned filter values, and analytical/learned subject correlations.
+The lowest validation loss selects the checkpoint. After selection, the
+analytical `Fe_local` baseline and learned model are scored on each nonempty
+split; neither baseline scores nor test scores affect training or selection.
+The checkpoint includes model weights and settings, the per-epoch training and
+validation loss history, selected epoch, data/split provenance, and final
+analytical/learned correlations. Predictions and per-frequency `Fe_graph`
+values are not saved because they can be recomputed from the model and cache.
 
 ```python
 checkpoint = torch.load(model_path, map_location="cpu", weights_only=True)
