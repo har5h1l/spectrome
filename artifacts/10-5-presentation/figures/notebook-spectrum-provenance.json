@@ -1,0 +1,16 @@
+{
+  "source": "spectrome/notebooks/reproduce_MEG_spectra.ipynb",
+  "source_sha256": "bfa0152577f137d362ffe4b4b4981b6c06901b4987380d020d04a20f704ee53c",
+  "cell_index": 8,
+  "output_index": 0,
+  "mime_type": "image/png",
+  "output_sha256": "287336921ef8f173211f0a6ddcb3f8cf15fc3371c6945e641dd30e3d1f3b3ba8",
+  "transformation": "None. Exact saved notebook PNG bytes.",
+  "scope": "Saved Figure 3 demonstration, separate from fresh cohort replay.",
+  "notebook_inputs": {
+    "meg": "freqMEGdata_8002-101.h5",
+    "connectome": "Brain.add_connectome default template",
+    "parameters": "SCFC_opparam_individual.mat record 0"
+  },
+  "plot_preprocessing": "Notebook smoothing and dB conversion retained."
+}

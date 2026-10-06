@@ -1,0 +1,67 @@
+..............F                                                          [100%]
+=================================== FAILURES ===================================
+______________ test_unverified_data_cannot_be_prepared_or_trained ______________
+
+historical_record = {'brain': namespace(reducedConnectome=array([[-0.00000000e+00,  2.66152071e+01,  3.66103358e+02, ...,
+         1.03386..., 42, 43, 44, 45, 46, 47, 48, 49, 50,
+       51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67]), ...}
+replay_cache = {'format_version': 1, 'forward_sha256': 'a7e22d91f85d8a0b60ee7341974ff05bc295b644105dde51eb22b38483c9d5e6', 'frequenci...24, 234.2500, 241.1777, 248.1053,
+        255.0329, 261.9605, 268.8881, 275.8157, 282.7433], dtype=torch.float64), ...}
+tmp_path = PosixPath('/private/var/folders/q0/_vvth6hx27s7hkksv_tlv0n00000gq/T/pytest-of-harshilshah/pytest-19/test_unverified_data_cannot_be0')
+
+    def test_unverified_data_cannot_be_prepared_or_trained(historical_record, replay_cache, tmp_path):
+        with pytest.raises(ValueError, match="unverified"):
+>           generate_training_data([historical_record], FREQS, tmp_path / "invalid.pt",
+                                   preprocessing_id="historical_notebook_preparation")
+
+spectrome/tests/test_fe_graph_mlp.py:90: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/anaconda3/envs/spectrome/lib/python3.11/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+spectrome/training/filters.py:95: in generate_training_data
+    subject_id, provenance, split = validate_subject_metadata(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+subject = {'brain': namespace(reducedConnectome=array([[-0.00000000e+00,  2.66152071e+01,  3.66103358e+02, ...,
+         1.03386..., 42, 43, 44, 45, 46, 47, 48, 49, 50,
+       51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67]), ...}
+purpose = 'training', seen_ids = {'historical-record-0'}
+
+    def validate_subject_metadata(subject, purpose, seen_ids):
+        """Validate one subject's ID, alignment evidence, provenance, and split."""
+        if not isinstance(subject, dict):
+            raise ValueError("Each subject input must be a dictionary")
+    
+        subject_id = subject.get("subject_id")
+        if not isinstance(subject_id, str) or not subject_id:
+            raise ValueError("subject_id must be a nonempty string")
+        if subject_id in seen_ids:
+            raise ValueError(f"{subject_id}: duplicate subject_id")
+        seen_ids.add(subject_id)
+    
+        if purpose == "training" and subject.get("mapping_verified") is not True:
+>           raise ValueError(f"{subject_id}: subject and region mapping are not verified")
+E           ValueError: historical-record-0: subject and region mapping are not verified
+
+spectrome/training/helpers.py:39: ValueError
+
+During handling of the above exception, another exception occurred:
+
+historical_record = {'brain': namespace(reducedConnectome=array([[-0.00000000e+00,  2.66152071e+01,  3.66103358e+02, ...,
+         1.03386..., 42, 43, 44, 45, 46, 47, 48, 49, 50,
+       51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67]), ...}
+replay_cache = {'format_version': 1, 'forward_sha256': 'a7e22d91f85d8a0b60ee7341974ff05bc295b644105dde51eb22b38483c9d5e6', 'frequenci...24, 234.2500, 241.1777, 248.1053,
+        255.0329, 261.9605, 268.8881, 275.8157, 282.7433], dtype=torch.float64), ...}
+tmp_path = PosixPath('/private/var/folders/q0/_vvth6hx27s7hkksv_tlv0n00000gq/T/pytest-of-harshilshah/pytest-19/test_unverified_data_cannot_be0')
+
+    def test_unverified_data_cannot_be_prepared_or_trained(historical_record, replay_cache, tmp_path):
+>       with pytest.raises(ValueError, match="unverified"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'unverified'
+E        Input: 'historical-record-0: subject and region mapping are not verified'
+
+spectrome/tests/test_fe_graph_mlp.py:89: AssertionError
+=========================== short test summary info ============================
+FAILED spectrome/tests/test_fe_graph_mlp.py::test_unverified_data_cannot_be_prepared_or_trained
+1 failed, 14 passed in 21.56s

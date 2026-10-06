@@ -1,0 +1,23 @@
+{
+  "created_utc": "2026-10-05T01:59:42.804443+00:00",
+  "record_one_based": 1,
+  "meg_parameter_raw_index": 0,
+  "structural_raw_index": 0,
+  "selection": "lower median of mean regional correlation",
+  "scope": "Single-record forward rerun, verified against saved 36-record replay arrays. Supplied fits and historical pairing retained.",
+  "plotting": "Notebook smoothing and dB conversion. All 68 observed/model regions, original cyan/blue curves and red/black means. No unit-norm normalization.",
+  "source_sha256": {
+    "spectrome/data/individual_subjects.mat": "6cb308446999091e832c53dee36e553de951459577b36133438293c8ec25e956",
+    "spectrome/data/SCFC_opparam_individual.mat": "8a9224755f478b61363561996e55bb410aa12aeda545d1c5bc500ba316047b6d",
+    "spectrome/data/freqMEGdata.mat": "70a401d3d98e08ca915a74b67081d30e8cf8a721e00a0f0929f04ec223f02c1a",
+    "spectrome/data/mean80_fiberlength.csv": "543d93b95cc4835ea75c286299d95452a3e244977463fee21526cdb7022238aa",
+    "spectrome/notebooks/individualC_optP.mat": "44bdbd6fa1fb043d58087d6d6f54d727460de3f5a81807d7b19cc19aef9db779",
+    "spectrome/tests/test_historical_torch_parity.py": "22ac3ed6a619443f16602e58e9d029ddc7b1676ac9db742e7a3e8e861e378254",
+    "spectrome/forward/network_transfer.py": "fabb9bdba18509a65c302cb41980d6847f1aa72cac7b15ad9d84ecd782480378",
+    "spectrome/forward/network_transfer_torch.py": "a7e22d91f85d8a0b60ee7341974ff05bc295b644105dde51eb22b38483c9d5e6",
+    "spectrome/training/filters.py": "baa6b67001181000f74c8e18c889c18adabd57a39cf7314bcd9ebbdff14490bb",
+    "spectrome/training/train.py": "7dca026f134032d5454949965180c1ab2e41d046f7637148949f5ca33aa57335"
+  },
+  "score": 0.8495799869257369,
+  "transformed_max_difference_from_prior_replay": 0.0
+}

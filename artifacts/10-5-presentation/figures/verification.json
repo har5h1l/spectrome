@@ -1,0 +1,50 @@
+{
+  "reviewed_utc": "2026-10-05T04:54:20.032558+00:00",
+  "source_sha256": "968a88578761b8bd58cf89ddfa8d36f9d7c54e0b32eb3fab8687bd39ffe87f8c",
+  "pdf_sha256": "c44c0081d2ad22f5554e03d8ccd61a5bf902de0e07b3526440425272559c20a0",
+  "pptx_sha256": "e029d94e2c0b25781765e74a57d0cac8f01cfcf35c0ef9b3b53eab7a937a702c",
+  "frames": 8,
+  "cover": 1,
+  "rendered_steps": 18,
+  "native_editor_compile": "External image unsupported. Local MacTeX build succeeds.",
+  "pdf_compile": "Success. No out-of-page text.",
+  "pdf_visual_review": "Changed pages 3, 6, 8 and 18 inspected at full size. Other pages retain previous layout.",
+  "pptx_validation": {
+    "package": {
+      "chart_count": 0,
+      "claim_boundary": "Structural package checks only; no slide text, notes, formulas, chart values, or native PowerPoint execution were inspected.",
+      "finding_count": 0,
+      "findings": [],
+      "notes_parts_skipped": 18,
+      "relationship_part_count": 41,
+      "slide_count": 18,
+      "status": "pass",
+      "exitCode": 0,
+      "findingCount": 0,
+      "warnings": []
+    },
+    "layout": {
+      "finding_count": 0,
+      "findings": [],
+      "slide_count": 18,
+      "slide_size_in": [
+        13.3333,
+        7.5
+      ],
+      "warning_count": 0,
+      "warnings": [],
+      "exitCode": 0,
+      "findingCount": 0
+    },
+    "import_passed": true
+  },
+  "pptx_render_review": "18 embedded images match reviewed PDF page PNGs byte-for-byte; package and artifact-tool import passed.",
+  "reproduction_plot": "Current historical replay retained record 1. Single-record rerun matched prior transformed spectra exactly. Original notebook plotting operations retained.",
+  "scientific_validation_scope": "Text and slide-order revision only; no scientific computation rerun.",
+  "requested_changes": "Removed L2/default-mode caption and Figure 4c caption; simplified subject mapping question and explanation; removed Results to compare overlay.",
+  "known_output_limitations": [
+    "PPTX pages are rendered images; edit main.tex for visible content.",
+    "Built-in source preview cannot resolve external figure; use local build PDF.",
+    "Desktop PowerPoint not inspected."
+  ]
+}

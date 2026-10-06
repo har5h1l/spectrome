@@ -1,0 +1,51 @@
+{
+  "created_utc": "2026-10-05T00:21:32.686691+00:00",
+  "purpose": "historical_replay_only",
+  "records": 36,
+  "regions": 68,
+  "frequencies": 40,
+  "frequency_range_hz": [
+    2,
+    45
+  ],
+  "mean_numpy_correlation": 0.8508553480139133,
+  "max_saved_error": 4.729550084903167e-14,
+  "max_torch_correlation_error": 2.886579864025407e-14,
+  "max_raw_error": 5.179393615126963e-11,
+  "max_transformed_error": 8.801404050018391e-12,
+  "example_record": 1,
+  "example_selection": "lower median of mean regional correlation",
+  "region_rows_one_based": [
+    1,
+    23,
+    46
+  ],
+  "empty_raw_indices_zero_based": [
+    21,
+    22,
+    28
+  ],
+  "positional_mismatches": 15,
+  "versions": {
+    "numpy": "1.26.4",
+    "scipy": "1.11.4",
+    "torch": "2.13.0"
+  },
+  "source_sha256": {
+    "spectrome/data/individual_subjects.mat": "6cb308446999091e832c53dee36e553de951459577b36133438293c8ec25e956",
+    "spectrome/data/SCFC_opparam_individual.mat": "8a9224755f478b61363561996e55bb410aa12aeda545d1c5bc500ba316047b6d",
+    "spectrome/data/freqMEGdata.mat": "70a401d3d98e08ca915a74b67081d30e8cf8a721e00a0f0929f04ec223f02c1a",
+    "spectrome/data/mean80_fiberlength.csv": "543d93b95cc4835ea75c286299d95452a3e244977463fee21526cdb7022238aa",
+    "spectrome/notebooks/individualC_optP.mat": "44bdbd6fa1fb043d58087d6d6f54d727460de3f5a81807d7b19cc19aef9db779",
+    "spectrome/tests/test_historical_torch_parity.py": "22ac3ed6a619443f16602e58e9d029ddc7b1676ac9db742e7a3e8e861e378254",
+    "spectrome/forward/network_transfer.py": "fabb9bdba18509a65c302cb41980d6847f1aa72cac7b15ad9d84ecd782480378",
+    "spectrome/forward/network_transfer_torch.py": "a7e22d91f85d8a0b60ee7341974ff05bc295b644105dde51eb22b38483c9d5e6",
+    "spectrome/training/filters.py": "baa6b67001181000f74c8e18c889c18adabd57a39cf7314bcd9ebbdff14490bb",
+    "spectrome/training/train.py": "7dca026f134032d5454949965180c1ab2e41d046f7637148949f5ca33aa57335"
+  },
+  "limitations": [
+    "Historical compacted structural indexing is preserved.",
+    "This does not verify subject or region identity.",
+    "Supplied parameter fits are reused. No fitting or MLP training is run."
+  ]
+}

@@ -1,0 +1,6 @@
+build/
+!presentation.pdf
+!presentation.pptx
+!figures/notebook-spectrum.png
+!figures/replay-spectrum.png
+!figures/replay-spectrum.pdf
