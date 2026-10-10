@@ -1,36 +1,27 @@
-"""Test suite for the util module."""
+"""Path helpers work relative to the package, without writing source data."""
 
-import os
-from nose.tools import with_setup
+from pathlib import Path
+
+import pytest
+
 from ..utils import path
 
 
-def f_setup():
-    """Creates test file in `./data/` dir."""
-    open("../data/test.txt", "w")
+@pytest.fixture
+def package_data(tmp_path, monkeypatch):
+    package = tmp_path / "spectrome"
+    data = package / "data"
+    data.mkdir(parents=True)
+    (data / "example.txt").write_text("test data")
+    monkeypatch.setattr(path, "__file__", str(package / "utils" / "path.py"))
+    return data
 
 
-def f_teardown():
-    """Removes test file from `./data/` dir."""
-    files = os.listdir("../data/")
-    if "test.txt" in files:
-        os.remove("../data/test.txt")
+def test_get_file_path(package_data):
+    actual = Path(path.get_file_path("example.txt"))
+    assert actual == package_data / "example.txt"
+    assert actual.read_text() == "test data"
 
 
-@with_setup(setup=f_setup, teardown=f_teardown)
-def test_get_file_path():
-    """Checks if path.get_file_path(file) returns `./data/file`."""
-    f_setup()
-    file_path = path.get_file_path("test.txt")
-    assert os.path.exists(file_path) is True
-    f_teardown()
-
-
-@with_setup(setup=f_setup, teardown=f_teardown)
-def test_get_data_path():
-    """Checks if path.get_data_path(file) returns `./data/`."""
-    f_setup()
-    data_path = path.get_data_path()
-    file_path = os.path.join(data_path, "test.txt")
-    assert os.path.exists(file_path) is True
-    f_teardown()
+def test_get_data_path(package_data):
+    assert Path(path.get_data_path()) == package_data

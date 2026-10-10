@@ -24,7 +24,7 @@ def validate_frequencies(frequencies_hz):
 
 
 def validate_subject_metadata(subject, purpose, seen_ids):
-    """Validate one subject's ID, alignment evidence, provenance, and split."""
+    """Validate one subject's ID, alignment confirmation, and provenance."""
     if not isinstance(subject, dict):
         raise ValueError("Each subject input must be a dictionary")
 
@@ -36,7 +36,7 @@ def validate_subject_metadata(subject, purpose, seen_ids):
     seen_ids.add(subject_id)
 
     if purpose == "training" and subject.get("mapping_verified") is not True:
-        raise ValueError(f"{subject_id}: subject and region mapping are not verified")
+        raise ValueError(f"{subject_id}: unverified subject and region alignment")
 
     provenance = subject.get("provenance")
     if not isinstance(provenance, dict) or not provenance:
@@ -47,10 +47,7 @@ def validate_subject_metadata(subject, purpose, seen_ids):
     except (TypeError, ValueError) as error:
         raise ValueError(f"{subject_id}: provenance must contain JSON-compatible values") from error
 
-    split = subject.get("split")
-    if split not in {"train", "validation", "test"}:
-        raise ValueError(f"{subject_id}: split must be 'train', 'validation', or 'test'")
-    return subject_id, provenance, split
+    return subject_id, provenance
 
 
 def validate_parameters(subject_id, raw_parameters):

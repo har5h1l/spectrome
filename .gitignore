@@ -22,3 +22,6 @@ spectrome/data/laplacian_networks
 /agent_docs/
 
 sgm_stimulate_torch.py
+
+# Each local experiment includes its cache, checkpoints, tables, and figures.
+/results/

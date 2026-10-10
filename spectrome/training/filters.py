@@ -12,6 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from spectrome.forward import network_transfer_torch as nt
+from .cohort import COHORT_PREPROCESSING_ID, prepare_cohort
 from .helpers import (
     validate_brain_matrices,
     validate_frequencies,
@@ -68,31 +69,34 @@ class FeGraphMLP(nn.Module):
 
 
 @torch.no_grad()
-def generate_training_data(subjects, frequencies_hz, output_path, *,
-                           preprocessing_id, use_smalleigs=True,
+def generate_training_data(subjects=None, frequencies_hz=None,
+                           output_path="training_cache.pt", *,
+                           preprocessing_id=None, data_dir=None, use_smalleigs=True,
                            purpose="training"):
     """Prepare and save fixed graphs and raw empirical targets on CPU.
 
-    ``subjects`` must contain already-paired records with subject IDs, brains,
-    parameters, empirical MEG, observed regions, splits, and provenance. This
-    function validates those records and prepares a graph for each frequency;
-    it does not load or align raw cohort files.
-
-    TODO: build the input records from an authoritative subject/region
-    manifest. Do not pair compacted MEG/parameter arrays with unfiltered
-    connectivity by position.
+    With no ``subjects``, prepare the current chronological cohort first.
+    Alternatively supply paired records and an explicit preprocessing ID.
+    Cache subjects once without split labels; train_filter assigns LOOCV roles.
     """
     if purpose not in {"training", "historical_replay"}:
         raise ValueError("purpose must be 'training' or 'historical_replay'")
+    if subjects is None:
+        subjects = prepare_cohort(data_dir)
+        preprocessing_id = preprocessing_id or COHORT_PREPROCESSING_ID
+    elif data_dir is not None:
+        raise ValueError("Supply subjects or data_dir, not both")
     if not preprocessing_id:
         raise ValueError("preprocessing_id must identify the input preparation")
+    if frequencies_hz is None:
+        frequencies_hz = torch.linspace(2, 45, 40, dtype=torch.float64)
 
     frequencies = validate_frequencies(frequencies_hz)
     records, seen_ids = [], set()
 
     # Validate each subject, prepare its graph at each frequency, and cache it.
     for subject in subjects:
-        subject_id, provenance, split = validate_subject_metadata(
+        subject_id, provenance = validate_subject_metadata(
             subject, purpose, seen_ids
         )
         parameters = validate_parameters(subject_id, subject.get("parameters"))
@@ -121,7 +125,6 @@ def generate_training_data(subjects, frequencies_hz, output_path, *,
             "graphs": graphs,
             "empirical_meg": target,
             "observed_regions": regions,
-            "split": split,
             "provenance": provenance,
         })
 
@@ -129,7 +132,7 @@ def generate_training_data(subjects, frequencies_hz, output_path, *,
         raise ValueError("subjects must contain at least one subject record")
 
     cache = {
-        "format_version": 1,
+        "format_version": 2,
         "purpose": purpose,
         "frequencies_hz": frequencies,
         "omega": 2 * torch.pi * frequencies,

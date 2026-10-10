@@ -1,7 +1,7 @@
 """Cache and gradient checks using an existing real historical record.
 
-No synthetic dataset and no cohort training. Historical pairing is deliberately
-marked unverified; these tests establish implementation behavior only.
+No synthetic dataset and no cohort training. Alignment confirmation is
+deliberately omitted from the fixture to test rejection of unconfirmed input.
 """
 
 import numpy as np
@@ -29,8 +29,8 @@ def historical_record():
     return {"subject_id": "historical-record-0", "brain": prepared_brain(C, D),
             "parameters": dict(zip(names, np.squeeze(parameters).astype(float))),
             "empirical_meg": target.astype(float), "observed_regions": np.arange(68),
-            "split": "train", "mapping_verified": False,
-            "provenance": {"basis": "Historical notebook replay; structural identity unverified",
+            "mapping_verified": False,
+            "provenance": {"basis": "Historical fixture; alignment confirmation omitted for rejection test",
                            "raw_meg_index": 0, "raw_param_index": 0, "raw_connectivity_index": 0}}
 
 
