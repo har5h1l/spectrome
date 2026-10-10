@@ -20,13 +20,15 @@ uses forward steps 1–2; training repeats step 3 and omits step 4 (FC).
 
 Edit `experiments.json` in this folder. Each entry has a `results_dir` relative
 to `results/experiments/` and explicit model/training `parameters`. The initial
-queue contains the existing 8-unit Tanh/100-epoch run, then 8-unit Tanh/500
-epochs, 32-unit Tanh/500 epochs, and 32-unit Sigmoid/500 epochs. All use learning
+queue contains the existing 8-unit Tanh/100-epoch run and one next experiment:
+8-unit Sigmoid/100 epochs. Both use learning
 rate `0.001`, seed `7`, and omega scale `2*pi*45`.
 
-Folders are named `basic_mlp_0` through `basic_mlp_3` in queue order.
+Folders are named `basic_mlp_0` and `basic_mlp_1` in queue order.
 `basic_mlp_0` is the completed baseline. Settings stay in the JSON and each
 saved run record; folder names do not need to repeat them.
+Only the hidden activation changes in this comparison. Review these results
+before adding another experiment with more epochs or hidden units.
 
 From the repository root:
 
@@ -68,8 +70,8 @@ Each run automatically records the settings that produced its outputs.
 `run_experiment` prepares data, calls `train_filter`, and generates analysis.
 Use `run_dir="results/experiments/my_run"` for a named output folder or
 `data_dir="/path/to/data"` to select cohort files. Existing run folders are
-refused. Experiment runs default to `results/experiments/`; bounded verification
-runs with `run_kind="verification"` default to `results/verification/`.
+refused. Runs default to `results/experiments/`. Automated tests use temporary
+directories; there is no separate run category or verification output location.
 
 ```text
 results/experiments/basic_mlp_0/

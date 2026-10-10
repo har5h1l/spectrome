@@ -253,7 +253,7 @@ def analyze_run(run_dir):
     difference = learned - analytical
     training = config["training_config"]
     lines = ["# Run summary", "",
-             f"Run: `{run_dir.name}`. Kind: {config.get('run_kind', 'experiment')}.", "",
+             f"Run: `{run_dir.name}`.", "",
              f"LOOCV: {len(difference)} subjects; {training['epochs']} fixed epochs; seed {training['seed']}.",
              f"Model settings: `{json.dumps(config['model_config'], sort_keys=True)}`. "
              f"Adam learning rate: {training['learning_rate']}.", "",

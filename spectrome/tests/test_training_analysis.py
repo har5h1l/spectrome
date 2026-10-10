@@ -85,9 +85,10 @@ def test_run_folder_owns_cache_and_rejects_overwrite(small_cache, monkeypatch, t
 
     monkeypatch.setattr(train, "generate_training_data", prepare)
     directory = run_experiment(tmp_path / "verification", epochs=2, hidden_sizes=(4,),
-                               omega_scale=100, run_kind="verification")
+                               omega_scale=100)
     config = json.loads((directory / "config.json").read_text())
     assert config["status"] == "complete" and config["n_subjects"] == 3
+    assert "run_kind" not in config
     assert (directory / config["cache_path"]).is_file()
     assert config["training_config"]["epochs"] == 2 and config["training_config"]["seed"] == 7
     assert len(list((directory / "checkpoints").glob("*.pt"))) == 3
@@ -127,7 +128,7 @@ def test_cache_reuse_copies_and_rejects_stale_source(small_cache, tmp_path, monk
     monkeypatch.setattr(train, "analyze_run", lambda *a, **k: None)
     directory = run_experiment(tmp_path / "reused", cache_source=source,
                                epochs=1, hidden_sizes=(4,), omega_scale=100,
-                               activation="sigmoid", run_kind="verification")
+                               activation="sigmoid")
     config = json.loads((directory / "config.json").read_text())
     assert (directory / config["cache_path"]).read_bytes() == source.read_bytes()
     assert config["model_config"]["activation"] == "sigmoid"

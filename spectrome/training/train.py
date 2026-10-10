@@ -39,7 +39,7 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
                    omega_scale=OMEGA_SCALE, epochs=EPOCHS,
                    learning_rate=LEARNING_RATE, seed=SEED,
                    subjects=None, frequencies_hz=None, preprocessing_id=None,
-                   run_kind="experiment", activation="tanh", cache_source=None):
+                   activation="tanh", cache_source=None):
     """Create a new run folder containing the cache, results, CSVs, and figures.
 
     Defaults are the accepted 100-epoch, seed-7 settings. Explicit subject
@@ -54,14 +54,13 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
     hidden_sizes = tuple(hidden_sizes)
     if run_dir is None:
         timestamp = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d_%H%M%S_%f")
-        category = "verification" if run_kind == "verification" else "experiments"
-        run_dir = repo / "results" / category / f"fe_graph_loocv_{timestamp}_seed{seed}"
+        run_dir = repo / "results" / "experiments" / f"fe_graph_loocv_{timestamp}_seed{seed}"
     run_dir = Path(run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=False)
     cache_path = run_dir / "cache" / "cohort_training_v2.pt"
     results_path = run_dir / "results.pt"
     config = create_run_record(
-        repo, run_kind=run_kind, hidden_sizes=hidden_sizes, omega_scale=omega_scale,
+        repo, hidden_sizes=hidden_sizes, omega_scale=omega_scale,
         activation=activation, epochs=epochs, learning_rate=learning_rate, seed=seed,
     )
 

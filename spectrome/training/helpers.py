@@ -189,12 +189,12 @@ class Tee:
         self.log.flush()
 
 
-def create_run_record(repo, *, run_kind, hidden_sizes, omega_scale,
+def create_run_record(repo, *, hidden_sizes, omega_scale,
                       activation, epochs, learning_rate, seed):
     """Capture settings and source provenance for a new experiment run."""
     record = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "run_kind": run_kind, "status": "preparing",
+        "status": "preparing",
         "cache_path": "cache/cohort_training_v2.pt", "results_path": "results.pt",
         "checkpoint_dir": "checkpoints",
         "model_config": {"hidden_sizes": list(hidden_sizes), "omega_scale": float(omega_scale),

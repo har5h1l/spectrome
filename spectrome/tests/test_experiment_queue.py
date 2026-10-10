@@ -30,11 +30,12 @@ def completed(directory, *, seed=7):
 
 def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
     entries = json.loads(Path(run.__file__).with_name("experiments.json").read_text())
-    assert [entry["results_dir"] for entry in entries] == [f"basic_mlp_{i}" for i in range(4)]
+    assert [entry["results_dir"] for entry in entries] == ["basic_mlp_0", "basic_mlp_1"]
     assert [(e["parameters"]["hidden_sizes"], e["parameters"]["activation"],
              e["parameters"]["epochs"]) for e in entries] == [
-        ([8], "tanh", 100), ([8], "tanh", 500),
-        ([32], "tanh", 500), ([32], "sigmoid", 500)]
+        ([8], "tanh", 100), ([8], "sigmoid", 100)]
+    baseline, next_run = [entry["parameters"] for entry in entries]
+    assert {**baseline, "activation": "sigmoid"} == next_run
     path = tmp_path / "baseline_only.json"
     path.write_text(json.dumps(entries[:1]))
     root = tmp_path / "results"
