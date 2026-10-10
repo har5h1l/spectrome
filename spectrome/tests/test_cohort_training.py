@@ -10,14 +10,17 @@ torch = pytest.importorskip("torch")
 
 from spectrome.tests.test_historical_torch_parity import DATA, FREQS, prepared_brain
 from spectrome.forward.network_transfer import network_transfer_local_alpha
-from spectrome.training import cohort, filters
-from spectrome.training.filters import FeGraphMLP, generate_training_data, predict_spectra
+from spectrome.training import data, spectra
+from spectrome.training.data import generate_training_data, prepare_spectral_subject
+from spectrome.training.model import FeGraphMLP
+from spectrome.training.spectra import predict_spectra
 from spectrome.training.train import train_filter
+from spectrome.training.helpers import load_fold_checkpoint
 
 
 @pytest.fixture(scope="module")
 def records():
-    return cohort.prepare_cohort(DATA)
+    return data.prepare_cohort(DATA)
 
 
 def test_chronological_cohort_uses_one_exclusion_rule(records):
@@ -48,7 +51,7 @@ def test_chronological_cohort_uses_one_exclusion_rule(records):
 
 
 def test_partial_missing_record_fails_instead_of_realigning(monkeypatch):
-    original_loadmat = cohort.loadmat
+    original_loadmat = data.loadmat
 
     def broken_parameters(path):
         data = original_loadmat(path)
@@ -56,9 +59,9 @@ def test_partial_missing_record_fails_instead_of_realigning(monkeypatch):
             data["output"]["param"][0, 23] = np.empty((0, 0))
         return data
 
-    monkeypatch.setattr(cohort, "loadmat", broken_parameters)
+    monkeypatch.setattr(data, "loadmat", broken_parameters)
     with pytest.raises(ValueError, match="Record 23"):
-        cohort.prepare_cohort(DATA)
+        data.prepare_cohort(DATA)
 
 
 @pytest.fixture
@@ -78,18 +81,18 @@ def test_generate_training_data_calls_cohort_preparation(records, monkeypatch, t
         called.append(data_dir)
         return [{**records[0], "empirical_meg": records[0]["empirical_meg"][:, :5]}]
 
-    monkeypatch.setattr(filters, "prepare_cohort", prepare)
+    monkeypatch.setattr(data, "prepare_cohort", prepare)
     path = tmp_path / "automatic.pt"
     cache = generate_training_data(frequencies_hz=FREQS[:5], output_path=path, data_dir=DATA)
     saved = torch.load(path, weights_only=True)
     assert called == [DATA]
     assert cache["format_version"] == saved["format_version"] == 2
     assert "split" not in saved["subjects"][0]
-    assert cache["preprocessing_id"] == cohort.COHORT_PREPROCESSING_ID
+    assert cache["preprocessing_id"] == data.COHORT_PREPROCESSING_ID
 
 
 def test_full_default_cache_and_chronological_analytical_baseline(tmp_path):
-    path = tmp_path / "full_cohort.pt"
+    path = tmp_path / "full_data.pt"
     generate_training_data(output_path=path)
     cache = torch.load(path, weights_only=True)
     assert len(cache["subjects"]) == 36
@@ -144,7 +147,7 @@ def test_loocv_folds_fresh_models_and_reload(small_cache, monkeypatch, tmp_path)
     for index, fold in enumerate(result["folds"]):
         assert set(fold["training_subject_ids"]) == set(ids) - {ids[index]}
         assert len(fold["history"]) == fold["trained_epochs"] == 2
-        checkpoint = torch.load(fold["checkpoint_path"], weights_only=True)
+        checkpoint = load_fold_checkpoint(output, fold)
         model = FeGraphMLP(**checkpoint["model_config"])
         model.load_state_dict(checkpoint["state_dict"])
         with torch.no_grad():
@@ -162,8 +165,8 @@ def test_held_out_targets_cannot_change_its_trained_weights(small_cache, tmp_pat
     held_out = small_cache["subjects"][0]
     held_out["empirical_meg"] = held_out["empirical_meg"].flip(-1)
     after = train_filter(small_cache, tmp_path / "after.pt", **settings)
-    first = torch.load(before["folds"][0]["checkpoint_path"], weights_only=True)
-    second = torch.load(after["folds"][0]["checkpoint_path"], weights_only=True)
+    first = load_fold_checkpoint(tmp_path / "before.pt", before["folds"][0])
+    second = load_fold_checkpoint(tmp_path / "after.pt", after["folds"][0])
     assert first["history"] == second["history"]
     for name in first["state_dict"]:
         torch.testing.assert_close(first["state_dict"][name], second["state_dict"][name], rtol=0, atol=0)
@@ -176,3 +179,66 @@ def test_loocv_rejects_single_subject_and_old_split_cache(small_cache, tmp_path)
                      tmp_path / "single.pt", **settings)
     with pytest.raises(ValueError, match="version 2"):
         train_filter({**small_cache, "format_version": 1}, tmp_path / "old.pt", **settings)
+
+
+@pytest.mark.parametrize("activation", ["tanh", "sigmoid"])
+def test_prepared_spectra_and_gradients_match_full_response(small_cache, activation, monkeypatch):
+    from spectrome.forward import network_transfer_torch as nt
+    subject = small_cache["subjects"][0]
+    prepared = prepare_spectral_subject(subject)
+    torch.manual_seed(7)
+    model = FeGraphMLP((4,), 100, activation=activation)
+    values = model(small_cache["omega"])
+    full = torch.stack([nt.evaluate_response_torch(graph, subject["parameters"], value)[3]
+                        for graph, value in zip(subject["graphs"], values)], dim=-1)
+    full = full[subject["observed_regions"]]
+
+    def unexpected_fc(*args, **kwargs):
+        pytest.fail("Spectral prediction must omit forward step 4 (FC)")
+
+    monkeypatch.setattr(nt, "compute_fc_torch", unexpected_fc)
+    fast = predict_spectra(prepared, values)
+    torch.testing.assert_close(fast, full, atol=1e-12, rtol=1e-12)
+    torch.testing.assert_close(predict_spectra(prepared), predict_spectra(subject),
+                               atol=1e-12, rtol=1e-12)
+    reference_loss = 1 - spectra.spectral_correlation(full, subject["empirical_meg"])
+    fast_loss = 1 - spectra.spectral_correlation(
+        fast, prepared["transformed_target"], target_norm=prepared["target_norm"])
+    torch.testing.assert_close(fast_loss, reference_loss, atol=1e-12, rtol=1e-12)
+    reference_grad = torch.autograd.grad(reference_loss, tuple(model.parameters()), retain_graph=True)
+    fast_grad = torch.autograd.grad(fast_loss, tuple(model.parameters()))
+    for actual, expected in zip(fast_grad, reference_grad):
+        torch.testing.assert_close(actual, expected, atol=1e-12, rtol=1e-10)
+    assert nt.evaluate_response_torch(subject["graphs"][0], subject["parameters"],
+                                      compute_fc=False)[4] is None
+    assert "spectral_response" not in subject
+
+
+def test_final_training_scores_and_portable_checkpoints(small_cache, tmp_path):
+    import shutil
+    directory = tmp_path / "original"
+    output = directory / "results.pt"
+    result = train_filter(small_cache, output, hidden_sizes=(4,), omega_scale=100,
+                          epochs=2, learning_rate=0.001, seed=7, activation="sigmoid",
+                          checkpoint_dir=directory / "checkpoints")
+    moved = tmp_path / "moved"
+    shutil.move(directory, moved)
+    for fold in result["folds"]:
+        assert not Path(fold["checkpoint_path"]).is_absolute()
+        checkpoint = load_fold_checkpoint(moved / "results.pt", fold)
+        model = FeGraphMLP(**checkpoint["model_config"])
+        model.load_state_dict(checkpoint["state_dict"])
+        training = [subject for subject in small_cache["subjects"]
+                    if subject["subject_id"] in fold["training_subject_ids"]]
+        with torch.no_grad():
+            values = model(small_cache["omega"])
+            learned = torch.stack([spectra.spectral_correlation(
+                predict_spectra(subject, values), subject["empirical_meg"]) for subject in training]).mean()
+            analytical = torch.stack([spectra.spectral_correlation(
+                predict_spectra(subject), subject["empirical_meg"]) for subject in training]).mean()
+        assert fold["learned_training_correlation"] == pytest.approx(learned.item(), abs=1e-12)
+        assert fold["analytical_training_correlation"] == pytest.approx(analytical.item(), abs=1e-12)
+    # Historical absolute paths and missing activation retain their old behavior.
+    absolute = {"checkpoint_path": str((moved / result["folds"][0]["checkpoint_path"]).resolve())}
+    assert load_fold_checkpoint(moved / "results.pt", absolute)["model_config"]["activation"] == "sigmoid"
+    assert FeGraphMLP((4,), 100).activation == "tanh"

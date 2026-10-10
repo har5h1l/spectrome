@@ -52,9 +52,9 @@ chronological cohort preparation, and leave-one-subject-out training live in
 [`spectrome/training`](spectrome/training/README.md). Run the complete test suite
 with `python -m pytest spectrome/tests -q`.
 
-The complete learned-filter workflow is available as
-`python -m spectrome.training.run`. It creates one Git-ignored results folder
-containing that run's cache, configuration, checkpoints, CSV tables, and PNG/PDF
+The complete learned-filter workflow is available through the Python function
+`spectrome.training.train.run_experiment`. It creates one Git-ignored results folder
+containing that run's cache, configuration, checkpoints, CSV tables, and PNG
 figures. See the [training guide](spectrome/training/README.md) for the accepted
 first-run settings and analysis-only regeneration.
 

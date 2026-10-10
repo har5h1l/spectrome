@@ -1,0 +1,54 @@
+[
+  {
+    "results_dir": "basic_mlp_0",
+    "parameters": {
+      "hidden_sizes": [
+        8
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 100,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_1",
+    "parameters": {
+      "hidden_sizes": [
+        8
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_2",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_3",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "sigmoid",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  }
+]

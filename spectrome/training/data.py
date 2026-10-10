@@ -1,10 +1,27 @@
-"""Load the current cohort in its shared chronological subject order."""
+"""Load the chronological cohort and prepare fixed graph-filter training data.
+
+prepare_cohort loads paired records. generate_training_data saves the frozen
+graph cache (forward step 1). prepare_spectral_subject prepares local responses
+(forward step 2) and transformed targets in memory before training.
+"""
 
 import hashlib
 from pathlib import Path
 
 import numpy as np
 from scipy.io import loadmat
+import torch
+
+from spectrome.forward import network_transfer_torch as nt
+from .spectra import transform_spectra
+from .helpers import (
+    validate_brain_matrices,
+    validate_frequencies,
+    validate_observations,
+    validate_parameters,
+    validate_prepared_graph,
+    validate_subject_metadata,
+)
 
 PARAMETER_NAMES = ("tau_e", "tau_i", "alpha", "speed", "gei", "gii", "tauC")
 COHORT_PREPROCESSING_ID = "chronological_cohort_notebook_graph_cortical_outputs_v1"
@@ -98,3 +115,103 @@ def prepare_cohort(data_dir=None):
             },
         })
     return subjects
+
+
+@torch.no_grad()
+def generate_training_data(subjects=None, frequencies_hz=None,
+                           output_path="training_cache.pt", *,
+                           preprocessing_id=None, data_dir=None, use_smalleigs=True,
+                           purpose="training"):
+    """Prepare and save fixed graphs and raw empirical targets on CPU.
+
+    With no ``subjects``, prepare the current chronological cohort first.
+    Alternatively supply paired records and an explicit preprocessing ID.
+    Cache subjects once without split labels; train_filter assigns LOOCV roles.
+    """
+    if purpose not in {"training", "historical_replay"}:
+        raise ValueError("purpose must be 'training' or 'historical_replay'")
+    if subjects is None:
+        subjects = prepare_cohort(data_dir)
+        preprocessing_id = preprocessing_id or COHORT_PREPROCESSING_ID
+    elif data_dir is not None:
+        raise ValueError("Supply subjects or data_dir, not both")
+    if not preprocessing_id:
+        raise ValueError("preprocessing_id must identify the input preparation")
+    if frequencies_hz is None:
+        frequencies_hz = torch.linspace(2, 45, 40, dtype=torch.float64)
+
+    frequencies = validate_frequencies(frequencies_hz)
+    records, seen_ids = [], set()
+
+    # Validate each subject, prepare its graph at each frequency, and cache it.
+    for subject in subjects:
+        subject_id, provenance = validate_subject_metadata(
+            subject, purpose, seen_ids
+        )
+        parameters = validate_parameters(subject_id, subject.get("parameters"))
+        brain = subject.get("brain")
+        C, _ = validate_brain_matrices(subject_id, brain)
+        regions, target = validate_observations(
+            subject, subject_id, C.shape[0], frequencies.numel()
+        )
+
+        graphs = []
+        for frequency in frequencies:
+            graph = nt.prepare_graph_torch(
+                brain, parameters, 2 * torch.pi * frequency,
+                use_smalleigs=use_smalleigs,
+            )
+            graph = {
+                name: value.detach().cpu().clone() if torch.is_tensor(value) else value
+                for name, value in graph.items()
+            }
+            validate_prepared_graph(graph, subject_id, frequency.item())
+            graphs.append(graph)
+
+        records.append({
+            "subject_id": subject_id,
+            "parameters": parameters,
+            "graphs": graphs,
+            "empirical_meg": target,
+            "observed_regions": regions,
+            "provenance": provenance,
+        })
+
+    if not records:
+        raise ValueError("subjects must contain at least one subject record")
+
+    cache = {
+        "format_version": 2,
+        "purpose": purpose,
+        "frequencies_hz": frequencies,
+        "omega": 2 * torch.pi * frequencies,
+        "preprocessing_id": preprocessing_id,
+        "use_smalleigs": use_smalleigs,
+        "forward_sha256": hashlib.sha256(Path(nt.__file__).read_bytes()).hexdigest(),
+        "subjects": records,
+    }
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(cache, output_path)
+    return cache
+
+
+@torch.no_grad()
+def prepare_spectral_subject(subject):
+    """Prepare fixed frequency batches and target transforms once per training call.
+
+    Return a separate dictionary; never mutate the raw cache or its targets.
+    """
+    terms = [nt.prepare_local_response_torch(graph, subject["parameters"])
+             for graph in subject["graphs"]]
+    if len({term["K"] for term in terms}) != 1:
+        raise ValueError("All frequencies must use the same mode count")
+    response = {key: torch.stack([term[key] for term in terms])
+                for key in terms[0] if key != "K"}
+    response["K"] = terms[0]["K"]
+    target = transform_spectra(subject["empirical_meg"])
+    norm = target.norm(dim=-1)
+    if not torch.isfinite(target).all() or (norm <= 1e-12).any():
+        raise ValueError("Spectral correlation requires finite, nonconstant regional spectra")
+    return {**subject, "spectral_response": response,
+            "transformed_target": target, "target_norm": norm}

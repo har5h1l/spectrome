@@ -1,8 +1,14 @@
-"""Input validation and conversion helpers for graph-filter training."""
+"""Validation, checkpoint loading, logging, and automatic run records."""
 
+from datetime import datetime, timezone
+import hashlib
 import json
+from pathlib import Path
+import subprocess
 
 import torch
+
+from spectrome.forward import network_transfer_torch as nt
 
 
 def validate_frequencies(frequencies_hz):
@@ -144,3 +150,80 @@ def validate_prepared_graph(graph, subject_id, frequency_hz):
                 f"{subject_id}: prepared graph field '{name}' is nonfinite "
                 f"at {frequency_hz} Hz"
             )
+
+
+def validate_training_cache(cache):
+    """Reject historical, split, or stale forward caches before reuse."""
+    if cache["purpose"] != "training":
+        raise ValueError("Training requires a verified training cache, not historical replay")
+    if cache["format_version"] != 2:
+        raise ValueError("Regenerate the data as a version 2 cache without fixed splits")
+    forward_hash = hashlib.sha256(Path(nt.__file__).read_bytes()).hexdigest()
+    if forward_hash != cache["forward_sha256"]:
+        raise ValueError("Forward source changed; regenerate the frozen data")
+    return forward_hash
+
+
+def load_fold_checkpoint(results_path, fold):
+    """Load paths relative to results.pt, or historical absolute paths."""
+    path = Path(fold["checkpoint_path"])
+    if not path.is_absolute():
+        path = Path(results_path).resolve().parent / path
+    return torch.load(path, map_location="cpu", weights_only=True)
+
+
+class Tee:
+    """Keep progress visible while retaining it in the run's log."""
+
+    def __init__(self, console, log):
+        self.console, self.log = console, log
+
+    def write(self, value):
+        self.console.write(value)
+        self.log.write(value)
+        self.log.flush()
+        return len(value)
+
+    def flush(self):
+        self.console.flush()
+        self.log.flush()
+
+
+def create_run_record(repo, *, run_kind, hidden_sizes, omega_scale,
+                      activation, epochs, learning_rate, seed):
+    """Capture settings and source provenance for a new experiment run."""
+    record = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "run_kind": run_kind, "status": "preparing",
+        "cache_path": "cache/cohort_training_v2.pt", "results_path": "results.pt",
+        "checkpoint_dir": "checkpoints",
+        "model_config": {"hidden_sizes": list(hidden_sizes), "omega_scale": float(omega_scale),
+                         "activation": activation},
+        "training_config": {"epochs": epochs, "learning_rate": learning_rate, "seed": seed,
+                            "optimizer": "Adam", "device": "cpu", "dtype": "float64"},
+        "selection_rule": "final epoch of fixed budget; no held-out selection",
+        "torch_version": str(torch.__version__), "torch_threads": torch.get_num_threads(),
+        "source_sha256": {str(path.relative_to(repo)): hashlib.sha256(path.read_bytes()).hexdigest()
+                          for path in [*(repo / "spectrome/training").glob("*.py"),
+                                       repo / "spectrome/forward/network_transfer_torch.py"]},
+        "plot_region_policy": "First, middle and last observed rows for every held-out subject",
+    }
+    # Git metadata is useful when available, but does not prevent use of a
+    # downloaded source tree. Exact participating source hashes are saved above.
+    try:
+        record["git_commit"] = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True, stderr=subprocess.DEVNULL).strip()
+        record["git_dirty"] = bool(subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=repo, text=True, stderr=subprocess.DEVNULL).strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        record["git_commit"], record["git_dirty"] = None, None
+
+    return record
+
+
+def save_run_record(run_dir, record):
+    """Atomically replace the run's automatic config.json record."""
+    run_dir = Path(run_dir)
+    temporary = run_dir / "config.json.tmp"
+    temporary.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n")
+    temporary.replace(run_dir / "config.json")

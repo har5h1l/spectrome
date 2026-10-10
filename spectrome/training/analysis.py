@@ -1,6 +1,5 @@
 """Export and plot saved held-out results without retraining any models."""
 
-import argparse
 import csv
 import hashlib
 import json
@@ -9,12 +8,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .filters import transform_spectra
+from .spectra import transform_spectra
 
 
-ANALYTICAL_COLOR = "#27618D"
-LEARNED_COLOR = "#CC7A29"
-OBSERVED_COLOR = "#30343B"
+ANALYTICAL_COLOR = "C0"
+LEARNED_COLOR = "C1"
+OBSERVED_COLOR = "black"
 
 
 def _load_inputs(results, cache):
@@ -95,6 +94,8 @@ def export_results(results, cache, output_dir):
             raise ValueError("Recomputed scores differ from saved results; check the cache")
         subject_rows.append({**base, "n_training_subjects": len(fold["training_subject_ids"]),
                              "n_regions": analytical.numel(),
+                             "analytical_training_correlation": fold.get("analytical_training_correlation", ""),
+                             "learned_training_correlation": fold.get("learned_training_correlation", ""),
                              "analytical_correlation": analytical.mean().item(),
                              "learned_correlation": learned.mean().item(),
                              "correlation_difference": (learned.mean() - analytical.mean()).item()})
@@ -124,7 +125,7 @@ def export_results(results, cache, output_dir):
 
 @torch.no_grad()
 def plot_results(results, cache, output_dir, *, region_rows=None):
-    """Save PNG/PDF diagnostics for every subject, without outcome selection.
+    """Save 300-dpi PNG diagnostics for every subject, without outcome selection.
 
     Spectrum overlays use the loss transformation followed by unit-norm
     normalization, matching Pearson correlation's shape comparison. Default
@@ -142,83 +143,98 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
     def save(figure, relative_path):
         path = output_dir / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        for extension in ("png", "pdf"):
-            target = path.with_suffix(f".{extension}")
-            figure.savefig(target, dpi=160, bbox_inches="tight")
-            paths.append(target)
+        target = path.with_suffix(".png")
+        figure.savefig(target, dpi=300, bbox_inches="tight")
+        paths.append(target)
         plt.close(figure)
 
-    style = {"font.family": "DejaVu Sans", "font.size": 10,
-             "axes.spines.top": False, "axes.spines.right": False,
-             "axes.labelcolor": OBSERVED_COLOR, "text.color": OBSERVED_COLOR,
-             "axes.titleweight": "semibold", "axes.grid": True,
-             "grid.alpha": 0.15, "grid.color": "#808080"}
-    with plt.rc_context(style):
-        folds = results["folds"]
-        figure, ax = plt.subplots(figsize=(8, 4.5), layout="constrained")
-        for fold in folds:
-            ax.plot([row["epoch"] for row in fold["history"]],
-                    [row["train_loss_before_step"] for row in fold["history"]],
-                    color=ANALYTICAL_COLOR, alpha=0.35, linewidth=1)
-        ax.set(title=f"Training loss across {len(folds)} folds", xlabel="Epoch",
-               ylabel="1 − mean training-subject spectral correlation")
-        figure.suptitle("Each curve is one fold; losses are measured before the optimizer step", fontsize=10)
-        save(figure, "training_curves")
+    def panels(axes):
+        for index, axis in enumerate(np.asarray(axes).ravel()):
+            axis.text(-0.15, 1.04, chr(65 + index), transform=axis.transAxes,
+                      fontweight="bold", va="bottom")
 
-        figure, axes = plt.subplots(1, 2, figsize=(10, 4.5), layout="constrained")
+    # Start from Matplotlib defaults so notebook/user themes cannot leak in.
+    with plt.rc_context(matplotlib.rcParamsDefault):
+        plt.rcParams.update({"font.size": 9, "axes.titlesize": 9,
+                             "axes.labelsize": 9, "legend.fontsize": 8,
+                             "lines.linewidth": 1.2})
+        folds = results["folds"]
+        figure, ax = plt.subplots(figsize=(5, 3.2), layout="constrained")
+        histories = []
+        for fold in folds:
+            epochs = [row["epoch"] for row in fold["history"]]
+            losses = [row["train_loss_before_step"] for row in fold["history"]]
+            ax.plot(epochs, losses, color="0.7", alpha=0.6, linewidth=0.6)
+            histories.append(losses)
+        if all([row["epoch"] for row in fold["history"]] == epochs for fold in folds):
+            ax.plot(epochs, np.mean(histories, axis=0), color="black", label="Mean")
+        ax.set(xlabel="Epoch", ylabel="Training loss (1 − r)")
+        ax.legend(frameon=False)
+        save(figure, "summary/training_curves")
+
         analytical = np.array([fold["analytical_correlation"] for fold in folds])
         learned = np.array([fold["learned_correlation"] for fold in folds])
-        axes[0].scatter(analytical, learned, color=LEARNED_COLOR, edgecolor=OBSERVED_COLOR)
-        axes[0].plot([-1, 1], [-1, 1], color="#808080", linestyle="--", linewidth=1)
-        axes[0].set(xlim=(-1, 1), ylim=(-1, 1), xlabel="Analytical spectral correlation",
-                    ylabel="Learned spectral correlation", title="Held-out subject scores")
-        axes[0].set_aspect("equal", adjustable="box")
-        axes[1].scatter(np.arange(1, len(folds) + 1), learned - analytical,
-                        color=LEARNED_COLOR, edgecolor=OBSERVED_COLOR)
-        axes[1].axhline(0, color="#808080", linestyle="--", linewidth=1)
-        axes[1].set(xlabel="Fold (source subject order)", ylabel="Learned − analytical correlation",
-                    title="Paired differences")
-        figure.suptitle(f"One held-out score per subject · n = {len(folds)}", fontsize=11)
-        save(figure, "held_out_scores")
+        figure, axes = plt.subplots(1, 3, figsize=(9, 3.1), layout="constrained")
+        for before, after in zip(analytical, learned):
+            axes[0].plot([0, 1], [before, after], color="0.75", linewidth=0.6)
+        axes[0].scatter(np.zeros(len(folds)), analytical, color=ANALYTICAL_COLOR, s=12, zorder=3)
+        axes[0].scatter(np.ones(len(folds)), learned, color=LEARNED_COLOR, s=12, zorder=3)
+        axes[0].set(xticks=[0, 1], xticklabels=["Analytical", "MLP"],
+                    xlim=(-0.3, 1.3), ylabel="Spectral correlation, r")
+        lower, upper = min(analytical.min(), learned.min()), max(analytical.max(), learned.max())
+        padding = max((upper - lower) * 0.1, 0.01)
+        limits = (max(-1, lower - padding), min(1, upper + padding))
+        axes[1].scatter(analytical, learned, color="black", s=14)
+        axes[1].plot(limits, limits, color="0.5", linestyle="--", linewidth=0.8)
+        axes[1].set(xlim=limits, ylim=limits, xlabel="Analytical r", ylabel="MLP r")
+        axes[1].set_aspect("equal", adjustable="box")
+        axes[2].scatter(np.arange(1, len(folds) + 1), learned - analytical, color="black", s=14)
+        axes[2].axhline(0, color="0.5", linestyle="--", linewidth=0.8)
+        axes[2].set(xlabel="Subject (source order)", ylabel="Δr (MLP − analytical)")
+        panels(axes)
+        save(figure, "summary/held_out_scores")
 
         frequencies = cache["frequencies_hz"].numpy()
         for fold in folds:
             subject = subjects[fold["held_out_subject_id"]]
+            subject_id = subject["subject_id"]
+            # IDs become directory names; reject paths rather than sanitize ambiguously.
+            if Path(subject_id).name != subject_id or subject_id in (".", "..") or "\\" in subject_id:
+                raise ValueError("Subject ID must be a safe directory name")
+            folder = f"subjects/subject-{subject_id}"
             n_regions = subject["observed_regions"].numel()
             rows = list(region_rows) if region_rows is not None else sorted({0, n_regions // 2, n_regions - 1})
             if not rows or any(not isinstance(row, int) or row < 0 or row >= n_regions for row in rows):
                 raise ValueError("region_rows must be nonempty valid zero-based observed rows")
-            figure, axes = plt.subplots(1, len(rows), figsize=(4 * len(rows), 4),
-                                        squeeze=False, layout="constrained")
+            figure, axes = plt.subplots(1, len(rows), figsize=(3 * len(rows), 2.8),
+                                        sharex=True, sharey=True, squeeze=False, layout="constrained")
             series = [("MEG", subject["empirical_meg"], OBSERVED_COLOR, ":"),
                       ("Analytical", fold["analytical_prediction"], ANALYTICAL_COLOR, "--"),
-                      ("Learned", fold["learned_prediction"], LEARNED_COLOR, "-")]
+                      ("MLP", fold["learned_prediction"], LEARNED_COLOR, "-")]
             for label, values, color, linestyle in series:
                 shapes = _normalized_spectra(values).numpy()
                 for axis, row in zip(axes[0], rows):
                     axis.plot(frequencies, shapes[row], label=label, color=color, linestyle=linestyle)
             for axis, row in zip(axes[0], rows):
-                node = subject["observed_regions"][row].item()
-                axis.set(title=f"Observed row {row} · model node {node}", xlabel="Frequency (Hz)",
-                         ylabel="Normalized spectral shape")
-            axes[0, -1].legend(frameon=False, fontsize=9)
-            figure.suptitle(f"Subject {subject['subject_id']} · held-out fold {fold['fold']}\n"
-                           "Magnitude → smoothing → square root → demeaning → unit norm", fontsize=11)
-            save(figure, f"spectra/fold-{fold['fold']:03d}")
+                axis.set(title=f"Region row {row}", xlabel="Frequency (Hz)")
+            axes[0, 0].set_ylabel("Normalized spectral shape")
+            axes[0, -1].legend(frameon=False)
+            panels(axes)
+            save(figure, f"{folder}/spectra")
 
-            figure, axes = plt.subplots(1, 2, figsize=(9, 4), layout="constrained")
+            figure, axes = plt.subplots(1, 2, figsize=(6, 2.8), sharex=True, layout="constrained")
             baseline = _analytical_filter(subject, cache["frequencies_hz"]).numpy()
             for label, values, color, linestyle in (
                 ("Analytical", baseline, ANALYTICAL_COLOR, "--"),
-                ("Learned", fold["Fe_graph"].numpy(), LEARNED_COLOR, "-"),
+                ("MLP", fold["Fe_graph"].numpy(), LEARNED_COLOR, "-"),
             ):
                 axes[0].plot(frequencies, np.abs(values), label=label, color=color, linestyle=linestyle)
                 axes[1].plot(frequencies, np.unwrap(np.angle(values)), label=label, color=color, linestyle=linestyle)
-            axes[0].set(xlabel="Frequency (Hz)", ylabel="Filter magnitude", title="Graph-filter magnitude")
-            axes[1].set(xlabel="Frequency (Hz)", ylabel="Unwrapped phase (rad)", title="Graph-filter phase")
+            axes[0].set(xlabel="Frequency (Hz)", ylabel="Filter magnitude")
+            axes[1].set(xlabel="Frequency (Hz)", ylabel="Phase (rad)")
             axes[1].legend(frameon=False)
-            figure.suptitle(f"Fold {fold['fold']} · analytical control uses held-out subject's fixed tau_e", fontsize=11)
-            save(figure, f"filters/fold-{fold['fold']:03d}")
+            panels(axes)
+            save(figure, f"{folder}/filter")
     return paths
 
 
@@ -232,15 +248,40 @@ def analyze_run(run_dir):
     results, cache, _ = _load_inputs(run_dir / config["results_path"], cache_path)
     tables = export_results(results, cache, run_dir / "tables")
     figures = plot_results(results, cache, run_dir / "figures")
-    return {"tables": tables, "figures": figures}
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_dir", type=Path)
-    args = parser.parse_args()
-    analyze_run(args.run_dir)
-
-
-if __name__ == "__main__":
-    main()
+    analytical = np.array([fold["analytical_correlation"] for fold in results["folds"]])
+    learned = np.array([fold["learned_correlation"] for fold in results["folds"]])
+    difference = learned - analytical
+    training = config["training_config"]
+    lines = ["# Run summary", "",
+             f"Run: `{run_dir.name}`. Kind: {config.get('run_kind', 'experiment')}.", "",
+             f"LOOCV: {len(difference)} subjects; {training['epochs']} fixed epochs; seed {training['seed']}.",
+             f"Model settings: `{json.dumps(config['model_config'], sort_keys=True)}`. "
+             f"Adam learning rate: {training['learning_rate']}.", "",
+             "| Held-out measure | Value |", "|---|---:|",
+             f"| Mean analytical r | {analytical.mean():.6f} |",
+             f"| Mean MLP r | {learned.mean():.6f} |",
+             f"| Mean difference (MLP − analytical) | {difference.mean():.6f} |",
+             f"| Median difference | {np.median(difference):.6f} |",
+             f"| Subjects improved | {int((difference > 0).sum())}/{len(difference)} |", "",
+             "Each score is the mean spectral correlation over the subject's observed regions. "
+             "The seven fitted SGM parameters and local analytical filter stay fixed. "
+             "This evaluates filter transfer conditional on those supplied fitted parameters.", "",
+             "## Figures", "",
+             "- [Held-out scores](figures/summary/held_out_scores.png): "
+             "A, paired scores; B, identity comparison with equal axes; C, subject differences.",
+             "- [Training curves](figures/summary/training_curves.png): "
+             "gray fold curves and black mean; loss is measured before each optimizer step.",
+             "- [Subject figures](figures/subjects/): spectra and filter magnitude/phase for every subject. "
+             "Spectra use the first, middle and last observed rows (zero-based). "
+             "Magnitude, smoothing, square root, demeaning and unit norm produce the displayed shape; "
+             "these are not absolute power spectra. Filter phase is unwrapped, and the analytical "
+             "filter uses the held-out subject's fixed tau_e.", "",
+             "## Saved data", "",
+             "- [Subject scores](tables/subject_scores.csv)",
+             "- [Region scores and model-node indices](tables/region_scores.csv)",
+             "- [Training history](tables/training_history.csv)",
+             "- [Complex filter values](tables/filter_values.csv)",
+             "- [Configuration and original training-source hashes](config.json)", ""]
+    summary = run_dir / "summary.md"
+    summary.write_text("\n".join(lines), encoding="utf-8")
+    return {"tables": tables, "figures": figures, "summary": summary}

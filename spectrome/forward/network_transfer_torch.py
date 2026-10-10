@@ -1,10 +1,16 @@
-"""Torch counterpart of the cohort notebook's local-alpha SGM forward path."""
+"""Torch counterpart of the cohort notebook's local-alpha SGM forward path.
+
+The four calculation steps appear in order below: prepare the graph, prepare
+local responses, evaluate spectra, and optionally compute functional
+connectivity (FC). Training reuses steps 1–2 and repeats step 3. The entry
+points after step 4 compose these steps for ordinary forward calls.
+"""
 
 import torch
 
 
 def prepare_graph_torch(brain, parameters, w, use_smalleigs=True):
-    """Prepare eigenpairs at angular frequency ``w`` in radians/second.
+    """Step 1/4: prepare graph eigenpairs at angular frequency ``w`` in radians/second.
 
     ``brain`` supplies model-order connectivity and distances in millimeters.
     Parameters ``alpha`` and ``speed`` (meters/second) determine the graph.
@@ -68,15 +74,13 @@ def prepare_graph_torch(brain, parameters, w, use_smalleigs=True):
     }
 
 
-def evaluate_response_torch(graph, parameters, Fe_graph=None):
-    """Evaluate a prepared graph with the same alpha and speed used to prepare it.
+def prepare_local_response_torch(graph, parameters):
+    """Step 2/4: prepare fixed local responses and denominator coefficients.
 
-    Parameters are ``tau_e``, ``tau_i``, ``gei``, ``gii``, ``tauC``, ``alpha``,
-    and ``speed``; time constants are in seconds. ``Fe_graph`` is one shared
-    complex scalar at the prepared frequency; None uses analytical ``Fe_local``.
-
-    Returns modal response [N], eigenvalues [N], eigenvectors [N, K], regional
-    response [N], and normalized FC [N, N], all complex128 tensors.
+    Use the graph from step 1 and the subject's fitted SGM parameters. Return
+    analytical Fe_local, Htotal, and the graph data needed by step 3. Reuse
+    this result only while the graph and all fitted parameters remain fixed.
+    The learned Fe_graph never replaces Fe_local in these local terms.
     """
     device = graph["eigenvalues"].device
     for name in ("alpha", "speed"):
@@ -93,7 +97,6 @@ def evaluate_response_torch(graph, parameters, Fe_graph=None):
     tauC, alpha = params["tauC"], params["alpha"]
     w = graph["w"]
 
-    zero_thr = 0.05  # Numerical safeguard for the graph denominator.
     a = 0.5  # Fraction of signal at a node that is recurrent excitatory.
 
     # Analytical local excitatory filter; it remains unchanged in the MLP experiment.
@@ -104,50 +107,73 @@ def evaluate_response_torch(graph, parameters, Fe_graph=None):
     Heid = gei * Fe_local * Fi / (1 + gei * Fe_local * Fi)
     Htotal = a * Hed + (1 - a) / 2 * Hid + (1 - a) / 2 * Heid
 
-    # Graph-propagation filter defaults to the analytical filter for baseline parity.
-    # Later, a frequency-only MLP will supply one shared complex scalar per frequency.
-    if Fe_graph is None:
-        Fe_graph = Fe_local
-    else:
-        if torch.is_tensor(Fe_graph):
-            Fe_graph = Fe_graph.to(device=device, dtype=torch.complex128)
-        else:
-            Fe_graph = torch.tensor(
-                Fe_graph, dtype=torch.complex128, device=device
-            )
-        if Fe_graph.numel() != 1:
-            raise ValueError("Fe_graph must be one complex scalar per frequency")
-        Fe_graph = Fe_graph.reshape(())
+    return {"Fe_local": Fe_local, "Htotal": Htotal,
+            "tauC_over_alpha": tauC / alpha, "alpha_over_tauC": alpha / tauC,
+            "w": w, "eigenvalues": graph["eigenvalues"],
+            "eigenvectors": graph["eigenvectors"], "K": graph["K"]}
 
-    # Keep Fe_local in the local terms; Fe_graph changes only graph propagation.
-    q1 = (tauC / alpha) * (
-        1j * w + alpha / tauC * Fe_graph * graph["eigenvalues"]
-    )
-    q_threshold = zero_thr * torch.max(torch.abs(q1))
-    q1 = torch.maximum(torch.abs(q1), q_threshold) * torch.exp(1j * torch.angle(q1))
-    # Frequency response gives each graph mode's response at this frequency.
-    frequency_response = Htotal / q1
 
-    # Preserve the original modal readout and normalized FC calculation.
-    eigenvectors = graph["eigenvectors"]
-    K = graph["K"]
-    model_out = torch.sum(
-        eigenvectors[:, 1:K] * frequency_response[None, 1:K], dim=1
-    )
+def evaluate_spectral_response_torch(response, Fe_graph=None):
+    """Step 3/4: evaluate modal responses and regional spectra without FC.
+
+    Use the fixed terms from step 2 at one frequency or a frequency batch.
+    Fe_graph supplies the shared learned filter; None uses analytical Fe_local.
+    Return modal responses [..., N] and regional spectra [..., N]. Gradients
+    pass through Fe_graph. The denominator floor uses all eigenvalues at each
+    frequency before selecting readout modes.
+    """
+    value = response["Fe_local"] if Fe_graph is None else torch.as_tensor(
+        Fe_graph, dtype=torch.complex128, device=response["eigenvalues"].device)
+    q1 = response["tauC_over_alpha"][..., None] * (
+        1j * response["w"][..., None]
+        + response["alpha_over_tauC"][..., None] * value[..., None]
+        * response["eigenvalues"])
+    threshold = 0.05 * q1.abs().amax(dim=-1, keepdim=True)
+    q1 = torch.maximum(q1.abs(), threshold) * torch.exp(1j * torch.angle(q1))
+    frequency_response = response["Htotal"][..., None] / q1
+    K = response["K"]
+    model_out = (response["eigenvectors"][..., :, 1:K]
+                 * frequency_response[..., None, 1:K]).sum(dim=-1)
+    return frequency_response, model_out
+
+
+def compute_fc_torch(graph, frequency_response, model_out):
+    """Step 4/4: compute normalized functional connectivity at one frequency.
+
+    Use the graph from step 1 and both outputs of step 3. Return the historical
+    complex FC matrix [N, N]. This optional step is omitted during spectral
+    training because its loss uses only regional spectra.
+    """
+    eigenvectors, K = graph["eigenvectors"], graph["K"]
     selected = eigenvectors[:, 1:K]
     FCmodel = selected @ torch.diag(frequency_response[1:K] ** 2) @ selected.T
     inverse_denominator = torch.diag(1 / torch.sqrt(torch.abs(model_out))).to(
-        torch.complex128
-    )
-    FCmodel = inverse_denominator @ FCmodel @ inverse_denominator
+        torch.complex128)
+    return inverse_denominator @ FCmodel @ inverse_denominator
 
-    return frequency_response, graph["eigenvalues"], eigenvectors, model_out, FCmodel
+
+def evaluate_response_torch(graph, parameters, Fe_graph=None, *, compute_fc=True):
+    """Compose steps 2–4 using a graph already prepared in step 1.
+
+    Return the historical five outputs: modal response, eigenvalues,
+    eigenvectors, regional response, and FC. With compute_fc=False, omit
+    step 4 and return None in the FC position.
+    """
+    response = prepare_local_response_torch(graph, parameters)
+    if Fe_graph is not None and torch.as_tensor(Fe_graph).numel() != 1:
+        raise ValueError("Fe_graph must be one complex scalar per frequency")
+    if Fe_graph is not None:
+        Fe_graph = torch.as_tensor(Fe_graph, dtype=torch.complex128,
+                                   device=graph["eigenvalues"].device).reshape(())
+    frequency_response, model_out = evaluate_spectral_response_torch(response, Fe_graph)
+    FCmodel = compute_fc_torch(graph, frequency_response, model_out) if compute_fc else None
+    return frequency_response, graph["eigenvalues"], graph["eigenvectors"], model_out, FCmodel
 
 
 def network_transfer_local_alpha_torch(
     brain, parameters, w, use_smalleigs=True, Fe_graph=None
 ):
-    """Evaluate at ``w`` in radians/second, returning the five response outputs.
+    """Compose steps 1–4 at ``w`` in radians/second; return five outputs.
 
     Uses the repository's local-alpha equations and parameter names. An optional
     scalar ``Fe_graph`` replaces only the graph-propagation filter.
@@ -159,7 +185,7 @@ def network_transfer_local_alpha_torch(
 def run_local_coupling_forward_torch(
     brain, parameters, frequencies, graph_filter_values=None, use_smalleigs=True
 ):
-    """Run the local-coupling forward model over frequencies in Hz.
+    """Compose steps 1–4 over a frequency grid in Hz and collect outputs.
 
     ``graph_filter_values`` may be a tensor or a sequence of scalar values or
     tensors, with one shared complex filter value per frequency. Gradients are

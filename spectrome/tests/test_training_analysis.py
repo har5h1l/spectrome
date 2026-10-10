@@ -11,9 +11,8 @@ torch = pytest.importorskip("torch")
 
 from spectrome.tests.test_cohort_training import records, small_cache
 from spectrome.training.analysis import analyze_run, export_results, plot_results
-from spectrome.training.run import run_experiment
-from spectrome.training.train import train_filter
-from spectrome.training import run
+from spectrome.training.train import run_experiment, train_filter
+from spectrome.training import train
 
 
 @pytest.fixture
@@ -39,6 +38,8 @@ def test_csv_metrics_match_saved_held_out_results(small_cache, saved_result, tmp
     assert len(history) == 3 * 2 and len(filters) == 3 * 5
     for row, fold in zip(subjects, saved_result["folds"]):
         assert row["subject_id"] == fold["held_out_subject_id"]
+        assert float(row["learned_training_correlation"]) == pytest.approx(fold["learned_training_correlation"])
+        assert float(row["analytical_training_correlation"]) == pytest.approx(fold["analytical_training_correlation"])
         assert float(row["learned_correlation"]) == pytest.approx(fold["learned_correlation"])
         assert float(row["analytical_correlation"]) == pytest.approx(fold["analytical_correlation"])
         regional = [float(r["learned_correlation"]) for r in regions if r["subject_id"] == row["subject_id"]]
@@ -47,7 +48,7 @@ def test_csv_metrics_match_saved_held_out_results(small_cache, saved_result, tmp
     assert float(filters[0]["learned_real"]) == pytest.approx(value.real.item())
     assert float(filters[0]["learned_imaginary"]) == pytest.approx(value.imag.item())
     assert float(filters[0]["learned_magnitude"]) == pytest.approx(value.abs().item())
-    assert Path(saved_result["folds"][0]["checkpoint_path"]).parent == tmp_path / "checkpoints"
+    assert Path(saved_result["folds"][0]["checkpoint_path"]).parent == Path("checkpoints")
 
 
 def test_analysis_rejects_wrong_cache_and_duplicate_folds(small_cache, saved_result, tmp_path):
@@ -66,9 +67,11 @@ def test_analysis_rejects_wrong_cache_and_duplicate_folds(small_cache, saved_res
 def test_figures_cover_all_subjects_and_close_handles(small_cache, saved_result, tmp_path):
     import matplotlib.pyplot as plt
     paths = plot_results(saved_result, small_cache, tmp_path / "figures")
-    assert len(paths) == (2 + 2 * 3) * 2
-    assert len(list((tmp_path / "figures/spectra").glob("*.png"))) == 3
-    assert len(list((tmp_path / "figures/filters").glob("*.png"))) == 3
+    assert len(paths) == 2 + 2 * 3
+    assert all(path.suffix == ".png" for path in paths)
+    assert not list((tmp_path / "figures").rglob("*.pdf"))
+    assert len(list((tmp_path / "figures/subjects").glob("*/spectra.png"))) == 3
+    assert len(list((tmp_path / "figures/subjects").glob("*/filter.png"))) == 3
     assert all(path.is_file() and path.stat().st_size > 100 for path in paths)
     assert not plt.get_fignums()
 
@@ -80,7 +83,7 @@ def test_run_folder_owns_cache_and_rejects_overwrite(small_cache, monkeypatch, t
         torch.save(small_cache, path)
         return small_cache
 
-    monkeypatch.setattr(run, "generate_training_data", prepare)
+    monkeypatch.setattr(train, "generate_training_data", prepare)
     directory = run_experiment(tmp_path / "verification", epochs=2, hidden_sizes=(4,),
                                omega_scale=100, run_kind="verification")
     config = json.loads((directory / "config.json").read_text())
@@ -95,10 +98,12 @@ def test_run_folder_owns_cache_and_rejects_overwrite(small_cache, monkeypatch, t
     # Figures/tables can be regenerated without calling train_filter.
     def no_training(*args, **kwargs):
         raise AssertionError("Analysis must not retrain")
-    monkeypatch.setattr(run, "train_filter", no_training)
+    monkeypatch.setattr(train, "train_filter", no_training)
     regenerated = analyze_run(directory)
     assert len(regenerated["tables"]) == 4
-    assert len(regenerated["figures"]) == 16
+    assert len(regenerated["figures"]) == 8
+    assert ".pdf" not in regenerated["summary"].read_text()
+    assert "Subjects improved" in regenerated["summary"].read_text()
     with (directory / config["cache_path"]).open("ab") as stream:
         stream.write(b"changed")
     with pytest.raises(ValueError, match="hash"):
@@ -113,3 +118,21 @@ def test_failed_run_retains_error_and_log(tmp_path):
     assert config["status"] == "failed"
     assert "FileNotFoundError" in config["error"]
     assert "Traceback" in (directory / "training.log").read_text()
+
+
+def test_cache_reuse_copies_and_rejects_stale_source(small_cache, tmp_path, monkeypatch):
+    source = tmp_path / "source.pt"
+    torch.save(small_cache, source)
+    monkeypatch.setattr(train, "generate_training_data", lambda *a, **k: pytest.fail("cache was rebuilt"))
+    monkeypatch.setattr(train, "analyze_run", lambda *a, **k: None)
+    directory = run_experiment(tmp_path / "reused", cache_source=source,
+                               epochs=1, hidden_sizes=(4,), omega_scale=100,
+                               activation="sigmoid", run_kind="verification")
+    config = json.loads((directory / "config.json").read_text())
+    assert (directory / config["cache_path"]).read_bytes() == source.read_bytes()
+    assert config["model_config"]["activation"] == "sigmoid"
+    with pytest.raises(ValueError, match="cannot be combined"):
+        run_experiment(tmp_path / "conflict", cache_source=source, data_dir=tmp_path)
+    torch.save({**small_cache, "forward_sha256": "stale"}, source)
+    with pytest.raises(ValueError, match="Forward source changed"):
+        run_experiment(tmp_path / "stale", cache_source=source)

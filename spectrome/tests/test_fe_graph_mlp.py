@@ -12,10 +12,9 @@ torch = pytest.importorskip("torch")
 
 from spectrome.tests.test_historical_torch_parity import DATA, FREQS, prepared_brain, transformed_spectra
 from spectrome.forward.network_transfer_torch import run_local_coupling_forward_torch
-from spectrome.training.filters import (
-    FeGraphMLP, generate_training_data, predict_spectra,
-    spectral_correlation, transform_spectra,
-)
+from spectrome.training.model import FeGraphMLP
+from spectrome.training.data import generate_training_data
+from spectrome.training.spectra import predict_spectra, spectral_correlation, transform_spectra
 from spectrome.training.train import train_filter
 
 

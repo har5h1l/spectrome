@@ -25,7 +25,22 @@ from spectrome.forward.network_transfer import network_transfer_local_alpha
 from spectrome.forward.network_transfer_torch import network_transfer_local_alpha_torch
 
 
+def collect_source_hashes(root=ROOT):
+    """Hash current source paths before replaying or replacing any outputs."""
+    files = [
+        "spectrome/data/individual_subjects.mat", "spectrome/data/SCFC_opparam_individual.mat",
+        "spectrome/data/freqMEGdata.mat", "spectrome/data/mean80_fiberlength.csv",
+        "spectrome/notebooks/individualC_optP.mat", "spectrome/tests/test_historical_torch_parity.py",
+        "spectrome/forward/network_transfer.py", "spectrome/forward/network_transfer_torch.py",
+        "spectrome/training/data.py", "spectrome/training/model.py",
+        "spectrome/training/spectra.py", "spectrome/training/train.py",
+        "spectrome/training/helpers.py", "spectrome/training/analysis.py",
+    ]
+    return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files}
+
+
 def main():
+    source_hashes = collect_source_hashes(ROOT)
     data = ROOT / "spectrome/data"
     raw_c = loadmat(data / "individual_subjects.mat")["A_all_subjs_final"]
     raw_p = np.squeeze(loadmat(data / "SCFC_opparam_individual.mat")["output"]["param"])
@@ -67,13 +82,6 @@ def main():
     np.savez(figures / "historical_spectra.npz", frequencies=FREQS,
              prediction=np.asarray(spectra), empirical=np.asarray(empirical_spectra),
              example_index=selected, displayed_region_rows=np.array([0,22,45]))
-    files = [
-        "spectrome/data/individual_subjects.mat", "spectrome/data/SCFC_opparam_individual.mat",
-        "spectrome/data/freqMEGdata.mat", "spectrome/data/mean80_fiberlength.csv",
-        "spectrome/notebooks/individualC_optP.mat", "spectrome/tests/test_historical_torch_parity.py",
-        "spectrome/forward/network_transfer.py", "spectrome/forward/network_transfer_torch.py",
-        "spectrome/training/filters.py", "spectrome/training/train.py",
-    ]
     summary = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "purpose": "historical_replay_only", "records": len(rows),
@@ -88,7 +96,7 @@ def main():
         "empty_raw_indices_zero_based": sorted(set(range(39))-set(retained)),
         "positional_mismatches": sum(s != i for s,i in enumerate(retained)),
         "versions": {"numpy": np.__version__, "scipy": scipy.__version__, "torch": torch.__version__},
-        "source_sha256": {name: hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in files},
+        "source_sha256": source_hashes,
         "limitations": ["Historical compacted structural indexing is preserved.",
                         "This does not verify subject or region identity.",
                         "Supplied parameter fits are reused. No fitting or MLP training is run."]
