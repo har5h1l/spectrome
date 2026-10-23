@@ -195,6 +195,64 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
         save(figure, "summary/held_out_scores")
 
         frequencies = cache["frequencies_hz"].numpy()
+        # Normalize each region before either averaging operation. The subject
+        # axis remains the sampling unit for both standard-deviation bands.
+        nodes = subjects[folds[0]["held_out_subject_id"]]["observed_regions"]
+        if any(not torch.equal(subjects[f["held_out_subject_id"]]["observed_regions"], nodes)
+               for f in folds):
+            raise ValueError("Across-subject spectra require identical observed region order")
+        if len(folds) < 2:
+            raise ValueError("Across-subject sample SD requires at least two subjects")
+        cohort_series = []
+        for label, key, color, linestyle in (
+            ("MEG", "empirical_meg", OBSERVED_COLOR, ":"),
+            ("Analytical", "analytical_prediction", ANALYTICAL_COLOR, "--"),
+            ("MLP", "learned_prediction", LEARNED_COLOR, "-"),
+        ):
+            values = torch.stack([
+                _normalized_spectra(subjects[f["held_out_subject_id"]][key]
+                                    if label == "MEG" else f[key]) for f in folds
+            ]).numpy()  # subjects x regions x frequencies
+            cohort_series.append((label, values, color, linestyle))
+
+        def draw_subject_summary(axis, values, label, color, linestyle):
+            mean = values.mean(axis=0)
+            sd = values.std(axis=0, ddof=1)
+            axis.fill_between(frequencies, mean - sd, mean + sd, color=color, alpha=0.12)
+            axis.plot(frequencies, mean, label=label, color=color, linestyle=linestyle)
+
+        figure, ax = plt.subplots(figsize=(7, 4), layout="constrained")
+        for label, values, color, linestyle in cohort_series:
+            draw_subject_summary(ax, values.mean(axis=1), label, color, linestyle)
+        ax.set(xlabel="Frequency (Hz)", ylabel="Normalized spectral shape",
+               title=f"Region-averaged spectra across {len(folds)} held-out subjects\n"
+                     "Mean ± 1 sample SD across subjects")
+        ax.legend(frameon=False)
+        save(figure, "summary/spectra_across_subjects")
+
+        n_regions = len(nodes)
+        ncols = min(4, n_regions)
+        nrows = (n_regions + ncols - 1) // ncols
+        figure, axes = plt.subplots(nrows, ncols, figsize=(12, 1.9 * nrows),
+                                    sharex=True, sharey=True, squeeze=False)
+        for row, axis in enumerate(axes.ravel()):
+            if row >= n_regions:
+                axis.set_visible(False)
+                continue
+            for label, values, color, linestyle in cohort_series:
+                draw_subject_summary(axis, values[:, row, :], label, color, linestyle)
+            axis.set_title(f"Region row {row} · node {nodes[row].item()}")
+        handles, labels = axes[0, 0].get_legend_handles_labels()
+        figure.suptitle(f"Regional spectra across {len(folds)} held-out subjects\n"
+                        "Mean ± 1 sample SD across subjects; region and node indices are zero-based",
+                        y=0.995)
+        figure.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.978),
+                      ncol=3, frameon=False)
+        figure.supxlabel("Frequency (Hz)")
+        figure.supylabel("Normalized spectral shape")
+        figure.tight_layout(rect=(0.025, 0.015, 1, 0.955))
+        save(figure, "summary/spectra_by_region")
+
         for fold in folds:
             subject = subjects[fold["held_out_subject_id"]]
             subject_id = subject["subject_id"]
@@ -271,6 +329,13 @@ def analyze_run(run_dir):
              "A, paired scores; B, identity comparison with equal axes; C, subject differences.",
              "- [Training curves](figures/summary/training_curves.png): "
              "gray fold curves and black mean; loss is measured before each optimizer step.",
+             "- [Across-subject spectra](figures/summary/spectra_across_subjects.png): "
+             "normalize each regional spectrum, average regions within each subject, then show "
+             "the mean ± one sample SD across subjects (equal subject weights).",
+             "- [Regional spectra](figures/summary/spectra_by_region.png): "
+             "each observed region separately, with mean ± one sample SD across subjects. "
+             "Both summaries show MEG, analytical and held-out MLP shapes, not absolute power; "
+             "bands describe subject variation, not confidence intervals.",
              "- [Subject figures](figures/subjects/): spectra and filter magnitude/phase for every subject. "
              "Spectra use the first, middle and last observed rows (zero-based). "
              "Magnitude, smoothing, square root, demeaning and unit norm produce the displayed shape; "

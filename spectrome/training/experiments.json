@@ -24,5 +24,200 @@
       "learning_rate": 0.001,
       "seed": 7
     }
+  },
+  {
+    "results_dir": "basic_mlp_2",
+    "parameters": {
+      "hidden_sizes": [
+        8
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_3",
+    "parameters": {
+      "hidden_sizes": [
+        8
+      ],
+      "activation": "sigmoid",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_4",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 100,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_5",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "sigmoid",
+      "omega_scale": 282.7433388230814,
+      "epochs": 100,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_6",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_7",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "sigmoid",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_8",
+    "parameters": {
+      "hidden_sizes": [
+        32,
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 100,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_9",
+    "parameters": {
+      "hidden_sizes": [
+        32,
+        32
+      ],
+      "activation": "sigmoid",
+      "omega_scale": 282.7433388230814,
+      "epochs": 100,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_10",
+    "parameters": {
+      "hidden_sizes": [
+        32,
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_11",
+    "parameters": {
+      "hidden_sizes": [
+        32,
+        32
+      ],
+      "activation": "sigmoid",
+      "omega_scale": 282.7433388230814,
+      "epochs": 500,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_12",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.001,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_13",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_14",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_15",
+    "parameters": {
+      "hidden_sizes": [
+        32,
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
   }
 ]

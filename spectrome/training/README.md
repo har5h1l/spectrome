@@ -19,16 +19,28 @@ uses forward steps 1–2; training repeats step 3 and omits step 4 (FC).
 ## Experiment queue
 
 Edit `experiments.json` in this folder. Each entry has a `results_dir` relative
-to `results/experiments/` and explicit model/training `parameters`. The initial
-queue contains the existing 8-unit Tanh/100-epoch run and one next experiment:
-8-unit Sigmoid/100 epochs. Both use learning
-rate `0.001`, seed `7`, and omega scale `2*pi*45`.
+to `results/experiments/` and explicit model/training `parameters`. The queue
+crosses hidden layers `[8]`, `[32]`, and `[32, 32]` with Tanh/Sigmoid and
+100/500 epochs: 12 configurations. All use learning rate `0.001`, seed `7`,
+and omega scale `2*pi*45`.
 
-Folders are named `basic_mlp_0` and `basic_mlp_1` in queue order.
-`basic_mlp_0` is the completed baseline. Settings stay in the JSON and each
-saved run record; folder names do not need to repeat them.
-Only the hidden activation changes in this comparison. Review these results
-before adding another experiment with more epochs or hidden units.
+Folders are named `basic_mlp_0` through `basic_mlp_11` in queue order.
+`basic_mlp_0` (8-unit Tanh, 100 epochs) and `basic_mlp_1` (8-unit Sigmoid,
+100 epochs) are complete. The other ten configurations are pending. Settings
+stay in the JSON and each saved run record; names do not need to repeat them.
+
+| Runs (Tanh / Sigmoid) | Hidden layers | Trainable parameters | Epochs |
+| --- | --- | ---: | ---: |
+| `basic_mlp_0` / `basic_mlp_1` | `[8]` | 34 | 100 |
+| `basic_mlp_2` / `basic_mlp_3` | `[8]` | 34 | 500 |
+| `basic_mlp_4` / `basic_mlp_5` | `[32]` | 130 | 100 |
+| `basic_mlp_6` / `basic_mlp_7` | `[32]` | 130 | 500 |
+| `basic_mlp_8` / `basic_mlp_9` | `[32, 32]` | 1,186 | 100 |
+| `basic_mlp_10` / `basic_mlp_11` | `[32, 32]` | 1,186 | 500 |
+
+This is an exploratory comparison. Settings remain fixed within each LOOCV
+run. Choosing a configuration using these outer scores makes the comparison
+part of model selection; it is not an independent final evaluation.
 
 From the repository root:
 
@@ -41,11 +53,11 @@ results file exists. Older records without activation default to Tanh. An
 existing incomplete or mismatched directory stops the queue; inspect it or
 choose a new folder name rather than overwrite it. Training errors also stop
 the queue. No automatic resume or settings selection is performed. The first
-entry points to the actual completed run, so it is skipped on this checkout.
-On a checkout without that result folder, the baseline will run too.
+two entries point to completed runs, so both are skipped on this checkout.
+On a checkout without those folders, those configurations will run too.
 
 `run_experiments()` can also be imported from `spectrome.training.run`.
-The queue was added for review; its new experiments have not been launched.
+The ten new configurations have not been launched.
 
 ## One complete run from Python
 
@@ -243,3 +255,11 @@ normalization: spectral shape, not calibrated absolute power.
 `plot_results(results, cache, output_dir, region_rows=...)` accept saved paths
 or loaded dictionaries. Analysis changes only the selected run's derived
 outputs; existing scientific results and checkpoints are retained.
+
+Across-subject spectrum summaries are also saved under `figures/summary/`:
+`spectra_across_subjects.png` averages normalized regions within each subject,
+then shows the mean and sample SD across subjects with equal subject weights.
+`spectra_by_region.png` keeps every region separate and shows its mean and
+sample SD across subjects. Both compare MEG, analytical, and held-out MLP
+spectra using the existing shape normalization. Bands show ±1 sample SD
+(ddof=1), not confidence intervals. Regions must have identical node ordering.

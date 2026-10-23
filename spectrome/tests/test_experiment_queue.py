@@ -30,11 +30,18 @@ def completed(directory, *, seed=7):
 
 def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
     entries = json.loads(Path(run.__file__).with_name("experiments.json").read_text())
-    assert [entry["results_dir"] for entry in entries] == ["basic_mlp_0", "basic_mlp_1"]
+    assert [entry["results_dir"] for entry in entries] == [f"basic_mlp_{i}" for i in range(16)]
+    expected = [(widths, activation, epochs)
+                for widths in ([8], [32], [32, 32])
+                for epochs in (100, 500) for activation in ("tanh", "sigmoid")]
+    expected.append(([128] * 5, "tanh", 5000))
+    expected.extend((widths, "tanh", 5000) for widths in ([128] * 5, [32], [32, 32]))
     assert [(e["parameters"]["hidden_sizes"], e["parameters"]["activation"],
-             e["parameters"]["epochs"]) for e in entries] == [
-        ([8], "tanh", 100), ([8], "sigmoid", 100)]
-    baseline, next_run = [entry["parameters"] for entry in entries]
+             e["parameters"]["epochs"]) for e in entries] == expected
+    assert all(e["parameters"][key] == PARAMETERS[key] for e in entries
+               for key in ("omega_scale", "seed"))
+    assert [e["parameters"]["learning_rate"] for e in entries] == [0.001] * 13 + [0.0003] * 3
+    baseline, next_run = [entry["parameters"] for entry in entries[:2]]
     assert {**baseline, "activation": "sigmoid"} == next_run
     path = tmp_path / "baseline_only.json"
     path.write_text(json.dumps(entries[:1]))
@@ -43,6 +50,21 @@ def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "run_experiment", lambda *a, **k: pytest.fail("Completed baseline must not retrain"))
     directories = run.run_experiments(path, results_root=root)
     assert directories[0].name == entries[0]["results_dir"]
+
+
+def test_shipped_queue_skips_both_completed_runs_and_selects_remaining(tmp_path, monkeypatch):
+    entries = json.loads(Path(run.__file__).with_name("experiments.json").read_text())
+    root = tmp_path / "results"
+    for entry in entries[:2]:
+        directory = root / entry["results_dir"]
+        completed(directory)
+        record = json.loads((directory / "config.json").read_text())
+        record["model_config"]["activation"] = entry["parameters"]["activation"]
+        (directory / "config.json").write_text(json.dumps(record))
+    calls = []
+    monkeypatch.setattr(run, "run_experiment", lambda path, **settings: calls.append((path.name, settings)))
+    run.run_experiments(results_root=root)
+    assert calls == [(entry["results_dir"], entry["parameters"]) for entry in entries[2:]]
 
 
 def test_skips_complete_and_runs_missing_in_order(tmp_path, monkeypatch):

@@ -67,7 +67,7 @@ def test_analysis_rejects_wrong_cache_and_duplicate_folds(small_cache, saved_res
 def test_figures_cover_all_subjects_and_close_handles(small_cache, saved_result, tmp_path):
     import matplotlib.pyplot as plt
     paths = plot_results(saved_result, small_cache, tmp_path / "figures")
-    assert len(paths) == 2 + 2 * 3
+    assert len(paths) == 4 + 2 * 3
     assert all(path.suffix == ".png" for path in paths)
     assert not list((tmp_path / "figures").rglob("*.pdf"))
     assert len(list((tmp_path / "figures/subjects").glob("*/spectra.png"))) == 3
@@ -102,7 +102,7 @@ def test_run_folder_owns_cache_and_rejects_overwrite(small_cache, monkeypatch, t
     monkeypatch.setattr(train, "train_filter", no_training)
     regenerated = analyze_run(directory)
     assert len(regenerated["tables"]) == 4
-    assert len(regenerated["figures"]) == 8
+    assert len(regenerated["figures"]) == 10
     assert ".pdf" not in regenerated["summary"].read_text()
     assert "Subjects improved" in regenerated["summary"].read_text()
     with (directory / config["cache_path"]).open("ab") as stream:
