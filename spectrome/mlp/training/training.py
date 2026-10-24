@@ -1,11 +1,10 @@
 """Fit one fresh frequency-only graph-filter MLP on supplied subjects."""
 
-import math
-
 import torch
 
 from ..model import FeGraphMLP
 from ..spectra import subject_correlation
+from .helpers import validate_fit_settings
 
 
 def train_filter(training_subjects, omega, model_config, training_config, *, on_epoch=None):
@@ -17,19 +16,10 @@ def train_filter(training_subjects, omega, model_config, training_config, *, on_
     """
     if not training_subjects:
         raise ValueError("training_subjects must not be empty")
-    if set(model_config) != {"hidden_sizes", "omega_scale", "activation"}:
-        raise ValueError("model_config must specify hidden_sizes, omega_scale, and activation")
-    if set(training_config) != {"epochs", "learning_rate", "seed"}:
-        raise ValueError("training_config must specify epochs, learning_rate, and seed")
+    validate_fit_settings(model_config, training_config)
     epochs = training_config["epochs"]
     learning_rate = training_config["learning_rate"]
     seed = training_config["seed"]
-    if isinstance(epochs, bool) or not isinstance(epochs, int) or epochs < 1:
-        raise ValueError("epochs must be a positive integer")
-    if isinstance(learning_rate, bool) or not math.isfinite(float(learning_rate)) or learning_rate <= 0:
-        raise ValueError("learning_rate must be finite and positive")
-    if isinstance(seed, bool) or not isinstance(seed, int):
-        raise ValueError("seed must be an integer")
 
     # Keep the fixed-configuration initialization contract. Reset immediately before every
     # new model so split construction and candidate order cannot consume it.

@@ -7,10 +7,10 @@ import numpy as np
 import torch
 
 from .helpers import (
-    _load_inputs, _write_csv, _region_scores, _analytical_filter,
-    load_run_config, load_loocv_run, load_nested_run, summarize_outer_scores,
+    validate_loocv_results, write_csv, regional_scores, analytical_graph_filter,
+    load_run_config, load_loocv_run, load_nested_run, summarize_outer_scores, load_saved_object,
 )
-from .plots import plot_results
+from .plots import plot_results, plot_nested_results
 
 
 @torch.no_grad()
@@ -21,14 +21,14 @@ def export_results(results, cache, output_dir):
     zero-based model nodes, not guessed anatomical labels. Subject scores are
     checked against the saved scalar metrics before any tables are written.
     """
-    results, cache, subjects = _load_inputs(results, cache)
+    results, cache, subjects = validate_loocv_results(results, cache)
     output_dir = Path(output_dir)
     subject_rows, region_rows, history_rows, filter_rows = [], [], [], []
     for fold in results["folds"]:
         subject = subjects[fold["held_out_subject_id"]]
         base = {"fold": fold["fold"], "subject_id": subject["subject_id"]}
-        analytical = _region_scores(fold["analytical_prediction"], subject["empirical_meg"])
-        learned = _region_scores(fold["learned_prediction"], subject["empirical_meg"])
+        analytical = regional_scores(fold["analytical_prediction"], subject["empirical_meg"])
+        learned = regional_scores(fold["learned_prediction"], subject["empirical_meg"])
         if (not np.isclose(analytical.mean().item(), fold["analytical_correlation"], atol=1e-10, rtol=1e-8)
                 or not np.isclose(learned.mean().item(), fold["learned_correlation"], atol=1e-10, rtol=1e-8)):
             raise ValueError("Recomputed scores differ from saved results; check the cache")
@@ -45,7 +45,7 @@ def export_results(results, cache, output_dir):
                                 "learned_correlation": learned[row].item(),
                                 "correlation_difference": (learned[row] - analytical[row]).item()})
         history_rows.extend({**base, **entry} for entry in fold["history"])
-        control = _analytical_filter(subject, cache["frequencies_hz"])
+        control = analytical_graph_filter(subject, cache["frequencies_hz"])
         for frequency, baseline, value in zip(cache["frequencies_hz"], control, fold["Fe_graph"]):
             filter_rows.append({**base, "frequency_hz": frequency.item(),
                                 "analytical_real": baseline.real.item(),
@@ -57,7 +57,7 @@ def export_results(results, cache, output_dir):
                                 "learned_magnitude": value.abs().item(),
                                 "learned_phase_rad": value.angle().item()})
     output_dir.mkdir(parents=True, exist_ok=True)
-    return {name: _write_csv(output_dir / f"{name}.csv", rows) for name, rows in (
+    return {name: write_csv(output_dir / f"{name}.csv", rows) for name, rows in (
         ("subject_scores", subject_rows), ("region_scores", region_rows),
         ("training_history", history_rows), ("filter_values", filter_rows),
     )}
@@ -81,6 +81,11 @@ def _write_nested_report(run_dir, results, verified_rows):
     )
     candidate_rows, inner_rows, history_rows = [], [], []
     for outer in results["outer_folds"]:
+        inner_fold_for_subject = {
+            subject_id: inner["inner_fold"]
+            for inner in outer["inner_splits"]
+            for subject_id in inner["validation_subject_ids"]
+        }
         for candidate in results["candidates"]:
             candidate_id = candidate["candidate_id"]
             selected = candidate_id == outer["selected_candidate_id"]
@@ -92,11 +97,6 @@ def _write_nested_report(run_dir, results, verified_rows):
                 "model_config": json.dumps(candidate["model_config"], sort_keys=True),
                 "training_config": json.dumps(candidate["training_config"], sort_keys=True),
             })
-            inner_fold_for_subject = {
-                subject_id: inner["inner_fold"]
-                for inner in outer["inner_splits"]
-                for subject_id in inner["validation_subject_ids"]
-            }
             inner_rows.extend({
                 "outer_fold": outer["outer_fold"],
                 "inner_fold": inner_fold_for_subject[row["subject_id"]],
@@ -112,10 +112,10 @@ def _write_nested_report(run_dir, results, verified_rows):
     tables_dir = run_dir / "tables"
     tables_dir.mkdir(parents=True, exist_ok=True)
     tables = {
-        "outer_subject_scores": _write_csv(tables_dir / "outer_subject_scores.csv", outer_rows),
-        "candidate_selection": _write_csv(tables_dir / "candidate_selection.csv", candidate_rows),
-        "inner_subject_scores": _write_csv(tables_dir / "inner_subject_scores.csv", inner_rows),
-        "outer_refit_history": _write_csv(tables_dir / "outer_refit_history.csv", history_rows),
+        "outer_subject_scores": write_csv(tables_dir / "outer_subject_scores.csv", outer_rows),
+        "candidate_selection": write_csv(tables_dir / "candidate_selection.csv", candidate_rows),
+        "inner_subject_scores": write_csv(tables_dir / "inner_subject_scores.csv", inner_rows),
+        "outer_refit_history": write_csv(tables_dir / "outer_refit_history.csv", history_rows),
     }
     selected_counts = summary_metrics["selected_candidate_counts"]
     lines = [
@@ -160,9 +160,22 @@ def _write_nested_report(run_dir, results, verified_rows):
         "- [Versioned result record](nested_results.json)",
         "- [Configuration and provenance](config.json)", "",
     ])
+    cache = load_saved_object(run_dir / load_run_config(run_dir)["cache_path"])
+    figures = plot_nested_results(run_dir, results, cache, run_dir / "figures")
+    lines.extend([
+        "## Figures", "",
+        "- [Outer-refit loss curves](figures/summary/training_curves.png): one curve per outer model; "
+        "a mean is shown only when epoch grids match.",
+        "- [Held-out scores](figures/summary/held_out_scores.png): paired scores and subject differences.",
+        "- [Across-subject spectra](figures/summary/spectra_across_subjects.png): "
+        "normalize each region, average regions within each subject, then show mean ± one sample SD "
+        "across subjects. The bands describe subject variation, not confidence intervals.",
+        "- [Regional spectra](figures/summary/spectra_by_region.png): the same summary for each region.",
+        "- [Subject figures](figures/subjects/): spectra and filter magnitude/phase for every subject.", "",
+    ])
     summary = run_dir / "summary.md"
     summary.write_text("\n".join(lines), encoding="utf-8")
-    return {"tables": tables, "figures": [], "summary": summary}
+    return {"tables": tables, "figures": figures, "summary": summary}
 
 
 

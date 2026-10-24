@@ -29,7 +29,13 @@ def completed(directory, *, seed=7):
     (directory / "results.pt").write_bytes(b"fake result for queue bookkeeping")
 
 
-def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
+@pytest.fixture
+def mock_result_verification(monkeypatch):
+    """Queue-routing tests use fake files; integrity tests use real checkpoints."""
+    monkeypatch.setattr("spectrome.mlp.analysis.helpers.load_loocv_run", lambda *args: None)
+
+
+def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch, mock_result_verification):
     entries = json.loads(Path(run.__file__).with_name("training_runs.json").read_text())
     assert [entry["results_dir"] for entry in entries] == [f"basic_mlp_{i}" for i in range(16)]
     expected = [(widths, activation, epochs)
@@ -53,7 +59,7 @@ def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
     assert directories[0].name == entries[0]["results_dir"]
 
 
-def test_shipped_queue_skips_both_completed_runs_and_selects_remaining(tmp_path, monkeypatch):
+def test_shipped_queue_skips_both_completed_runs_and_selects_remaining(tmp_path, monkeypatch, mock_result_verification):
     entries = json.loads(Path(run.__file__).with_name("training_runs.json").read_text())
     root = tmp_path / "results"
     for entry in entries[:2]:
@@ -68,7 +74,7 @@ def test_shipped_queue_skips_both_completed_runs_and_selects_remaining(tmp_path,
     assert calls == [(entry["results_dir"], entry["parameters"]) for entry in entries[2:]]
 
 
-def test_skips_complete_and_runs_missing_in_order(tmp_path, monkeypatch):
+def test_skips_complete_and_runs_missing_in_order(tmp_path, monkeypatch, mock_result_verification):
     root = tmp_path / "results"
     completed(root / "existing")  # Older records omit activation; default is Tanh.
     calls = []

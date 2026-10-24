@@ -150,7 +150,11 @@ def validate_prepared_graph(graph, subject_id, frequency_hz):
 
 
 def validate_training_cache(cache):
-    """Reject historical, split, or stale forward caches before reuse."""
+    """Check source identity, subject inputs, and frequency agreement before reuse.
+
+    These are consistency checks. They do not independently establish the
+    subject alignment recorded in the cache's provenance.
+    """
     if cache["purpose"] != "training":
         raise ValueError("Training requires a verified training cache, not historical replay")
     if cache["format_version"] != 2:
@@ -158,4 +162,39 @@ def validate_training_cache(cache):
     forward_hash = hashlib.sha256(Path(nt.__file__).read_bytes()).hexdigest()
     if forward_hash != cache["forward_sha256"]:
         raise ValueError("Forward source changed; regenerate the frozen data")
+    frequencies = validate_frequencies(cache["frequencies_hz"])
+    omega = cache["omega"]
+    if (not torch.is_tensor(omega) or omega.shape != frequencies.shape
+            or omega.dtype != frequencies.dtype or omega.device.type != "cpu"
+            or not torch.allclose(omega, 2 * torch.pi * frequencies, atol=1e-12, rtol=1e-12)):
+        raise ValueError("Cache omega must match 2*pi*frequencies_hz")
+    if not cache.get("preprocessing_id") or not cache.get("subjects"):
+        raise ValueError("Cache requires a preprocessing ID and subject records")
+    seen_ids = set()
+    for subject in cache["subjects"]:
+        subject_id = subject.get("subject_id")
+        if not isinstance(subject_id, str) or not subject_id or subject_id in seen_ids:
+            raise ValueError("Cached subject IDs must be unique nonempty strings")
+        seen_ids.add(subject_id)
+        if not isinstance(subject.get("provenance"), dict) or not subject["provenance"]:
+            raise ValueError(f"{subject_id}: cached subject requires provenance")
+        parameters = validate_parameters(subject_id, subject.get("parameters"))
+        graphs = subject.get("graphs", [])
+        if len(graphs) != len(frequencies):
+            raise ValueError(f"{subject_id}: graph count must match frequencies")
+        n_nodes = graphs[0]["eigenvectors"].shape[0]
+        validate_observations(subject, subject_id, n_nodes, len(frequencies))
+        for index, graph in enumerate(graphs):
+            validate_prepared_graph(graph, subject_id, frequencies[index].item())
+            if (graph["w"].numel() != 1
+                    or not torch.allclose(graph["w"], omega[index], atol=1e-12, rtol=1e-12)):
+                raise ValueError(f"{subject_id}: cached graph frequency differs from omega")
+            for name in ("alpha", "speed"):
+                if not torch.equal(graph[name], parameters[name]):
+                    raise ValueError(f"{subject_id}: {name} differs from the prepared graph")
+            modes = graph["K"]
+            if (isinstance(modes, bool) or not isinstance(modes, int) or not 0 < modes <= n_nodes
+                    or graph["eigenvectors"].shape != (n_nodes, modes)
+                    or graph["eigenvalues"].shape != (n_nodes,)):
+                raise ValueError(f"{subject_id}: inconsistent cached graph dimensions")
     return forward_hash

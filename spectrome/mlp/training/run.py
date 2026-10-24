@@ -24,7 +24,8 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
                    omega_scale=OMEGA_SCALE, epochs=EPOCHS,
                    learning_rate=LEARNING_RATE, seed=SEED,
                    subjects=None, frequencies_hz=None, preprocessing_id=None,
-                   activation="tanh", cache_source=None, protocol=None):
+                   activation="tanh", cache_source=None, protocol=None,
+                   training_runs_path=None):
     """Prepare data, run the requested CV procedure, and analyze its outputs."""
     parameters = {
         "hidden_sizes": hidden_sizes, "omega_scale": omega_scale,
@@ -34,7 +35,10 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
         "data_dir": data_dir, "subjects": subjects,
         "frequencies_hz": frequencies_hz, "preprocessing_id": preprocessing_id,
     }
-    parameters, protocol = validate_run_inputs(parameters, preparation, cache_source, protocol)
+    parameters, protocol = validate_run_inputs(
+        parameters, preparation, cache_source, protocol,
+        training_runs_path=training_runs_path,
+    )
     run_dir, config = initialize_run(run_dir, parameters, protocol, cache_source)
     with run_log(run_dir):
         try:
@@ -73,7 +77,7 @@ def run_experiments(config_path=None, *, results_root=None):
     completed, seen = [], set()
     for experiment in load_training_runs(config_path):
         directory = queue_run_directory(experiment, root, seen)
-        arguments = queue_run_arguments(experiment, directory)
+        arguments = queue_run_arguments(experiment, directory, config_path)
         if completed_run_matches(directory, arguments):
             print(f"Skipping completed run: {directory.name}", flush=True)
         else:

@@ -18,7 +18,7 @@ mlp/
     loocv.py                   run_loocv(): leave-one-out loop
     nested_cv.py               nested selection and outer refitting
     run.py                     one experiment or a declared batch
-    helpers.py                 validation, cache IO, records, checkpoints, splits
+    helpers.py                 settings, splits, run records, checkpoints, and logs
     training_runs.json         existing fixed-configuration training settings
   analysis/
     analysis.py                score tables and reports
@@ -42,6 +42,12 @@ mlp/
 subjects, creates a fresh MLP and Adam optimizer, and returns the fitted model
 and loss history. It does not choose held-out subjects, rank configurations,
 write run folders, or generate reports.
+
+Supporting functions stay in `helpers.py` so the main procedures show the
+scientific steps. Training helpers are grouped in reading order: settings and
+candidate catalogs, subject splits, run preparation and logging, nested result
+records, then checkpoint and JSON files. Analysis helpers group loading,
+verification, and report utilities. Shared utility names describe their purpose.
 
 The training arithmetic is unchanged: CPU float64, a declared seed reset just
 before model construction, one full-batch Adam update per epoch, and loss equal
@@ -130,6 +136,20 @@ training set and evaluates the outer test subjects. Every fit calls the same
 with equal subject weight; the first declared candidate wins an exact tie.
 Split seeds and training seeds are separate.
 
+Every candidate's model and training settings are checked before the run folder
+is created. All outer splits must support the requested inner fold count before
+the first fit. Cache checks require agreement between frequencies in Hz, angular
+frequencies, and each subject's cached graphs; they also check subject IDs,
+parameter snapshots, region indices, graph dimensions, and finite inputs. These
+checks do not independently establish the recorded subject alignment.
+
+Nested checkpoint and prediction writing lives in training helpers. The main
+loop retains inner fitting, candidate selection, outer refitting, and held-out
+evaluation. Progress logs identify the outer fold, candidate, inner fold, and
+refit; loss is logged at the first, last, and every hundredth epoch. Both run
+types record the Git revision, working-tree status, Torch version, thread count,
+device, and precision.
+
 Nested evaluation requires new inner fits and outer refits. Historical results
 cannot become nested results through post-processing. No full nested cohort
 experiment has run. Earlier configuration choices used this cohort, so nested
@@ -150,6 +170,13 @@ results. These are internal report writers, not separate training or evaluation
 runs. `analysis.py` exports tables and writes reports; `plots.py` draws figures. Normalized spectra and correlation describe
 shape, not calibrated absolute power. Sample-SD bands describe variation across
 subjects, not confidence intervals.
+
+Nested reports include held-out scores, normalized spectra across subjects and
+by region, per-subject spectra and filters, and outer-refit loss curves. Each
+outer refit contributes one loss curve, even when several subjects share its
+test fold. A mean curve is shown only when all epoch grids match. Outer subject
+plots follow the source cohort order; inner validation scores are not plotted
+as final evaluation results.
 
 `analysis/helpers.py` owns data loading for both reports and statistical
 comparisons, including configuration, cache, checkpoints, and score tables. It reads checkpoints and
@@ -191,3 +218,10 @@ python -m pytest spectrome/tests -q
 Tests cover seeded training behavior, graph and spectrum parity, subject
 isolation, nested selection, checkpoint loading, queue handling, statistical
 comparisons, and saved-result consistency.
+
+The historical presentation collector is tracked at
+`spectrome/tests/historical_evidence.py`, beside its reference parity checks.
+Presentation outputs remain ignored. To explicitly regenerate historical
+evidence into a separate directory, use
+`python -m spectrome.tests.historical_evidence /tmp/spectrome-historical-evidence`.
+This replays the historical positional pairing; it is separate from MLP training.

@@ -17,19 +17,12 @@ from ..training.helpers import (
 )
 
 
+# Load saved runs and scores
+
+
 def load_run_config(run_dir):
     """Read the saved settings used to choose the analysis report."""
     return json.loads((Path(run_dir) / "config.json").read_text())
-
-
-def load_loocv_run(run_dir, config):
-    """Check the cache hash and load fixed-configuration LOOCV results."""
-    run_dir = Path(run_dir)
-    cache_path = run_dir / config["cache_path"]
-    if hashlib.sha256(cache_path.read_bytes()).hexdigest() != config["cache_sha256"]:
-        raise ValueError("Run cache hash differs from config.json")
-    results, cache, _ = _load_inputs(run_dir / config["results_path"], cache_path)
-    return results, cache
 
 
 def load_saved_object(value):
@@ -37,6 +30,197 @@ def load_saved_object(value):
     return value if isinstance(value, dict) else torch.load(
         value, map_location="cpu", weights_only=True
     )
+
+
+def load_loocv_run(run_dir, config):
+    """Verify the cache and replay every saved fixed-configuration checkpoint."""
+    run_dir = Path(run_dir)
+    cache_path = run_dir / config["cache_path"]
+    if hashlib.sha256(cache_path.read_bytes()).hexdigest() != config["cache_sha256"]:
+        raise ValueError("Run cache hash differs from config.json")
+    results, cache, _ = validate_loocv_results(run_dir / config["results_path"], cache_path)
+    validate_training_cache(cache)
+    verify_loocv_checkpoints(run_dir, results, cache, config)
+    return results, cache
+
+
+def load_loocv_scores(run_dir):
+    """Load verified fixed-run subject scores and their comparison provenance."""
+    run_dir = Path(run_dir).resolve()
+    config_path = run_dir / "config.json"
+    config = json.loads(config_path.read_text())
+    results, cache = load_loocv_run(run_dir, config)
+    subjects = {subject["subject_id"]: subject for subject in cache["subjects"]}
+    if results.get("loss_preprocessing") != "magnitude_conv5_sqrt_floor1e-12_demean":
+        raise ValueError(f"{run_dir.name}: unsupported saved scoring convention")
+    if results.get("scoring_id", SCORING_ID) != SCORING_ID:
+        raise ValueError(f"{run_dir.name}: scoring IDs differ")
+    ids = list(subjects)
+    region_maps = {
+        subject_id: subjects[subject_id]["observed_regions"].tolist()
+        for subject_id in ids
+    }
+    provenance = {
+        "run_dir": str(run_dir),
+        "cache_sha256": config["cache_sha256"],
+        "preprocessing_id": cache["preprocessing_id"],
+        "forward_sha256": cache["forward_sha256"],
+        "frequencies_hz": cache["frequencies_hz"].tolist(),
+        "subject_ids": ids,
+        "observed_region_maps": region_maps,
+        "scoring_id": SCORING_ID,
+    }
+    subject_table_path = run_dir / "tables/subject_scores.csv"
+    table = {}
+    if subject_table_path.is_file():
+        with subject_table_path.open(newline="", encoding="utf-8") as stream:
+            for row in csv.DictReader(stream):
+                subject_id = row["subject_id"]
+                if subject_id in table:
+                    raise ValueError(f"{run_dir.name}: duplicate subject score table row")
+                table[subject_id] = row
+
+    learned = {}
+    analytical = {}
+    for fold in results["folds"]:
+        subject_id = fold["held_out_subject_id"]
+        learned[subject_id] = float(fold["learned_correlation"])
+        analytical[subject_id] = float(fold["analytical_correlation"])
+        if table:
+            if subject_id not in table:
+                raise ValueError(f"{run_dir.name}: subject score table is missing {subject_id}")
+            if not math.isclose(float(table[subject_id]["learned_correlation"]), learned[subject_id],
+                                abs_tol=1e-12, rel_tol=1e-12):
+                raise ValueError(f"{run_dir.name}: subject score table differs for {subject_id}")
+            if not math.isclose(float(table[subject_id]["analytical_correlation"]), analytical[subject_id],
+                                abs_tol=1e-12, rel_tol=1e-12):
+                raise ValueError(f"{run_dir.name}: analytical score table differs for {subject_id}")
+    return {"learned": learned, "analytical": analytical, "provenance": provenance}
+
+
+@torch.no_grad()
+def load_nested_run(run_dir, config=None, *, require_complete=False):
+    """Verify protocol, files, checkpoints, predictions, and reported metrics.
+
+    Queue completion and analysis use this same read-only gate. Analysis may
+    run while config status is ``analyzing``; results must already be complete.
+    """
+    run_dir = Path(run_dir).resolve()
+    if config is None:
+        config = json.loads((run_dir / "config.json").read_text())
+    if (config.get("evaluation") != "nested_cross_validation"
+            or config.get("format_version") != 1):
+        raise ValueError("Unsupported nested run configuration")
+    allowed_statuses = {"complete"} if require_complete else {"analyzing", "complete"}
+    if config.get("status") not in allowed_statuses:
+        raise ValueError("Nested run configuration is not complete or ready for analysis")
+    cache_path = _artifact_path(run_dir, config["cache_path"])
+    results_path = _artifact_path(run_dir, config.get("results_path", "nested_results.json"))
+    if hashlib.sha256(cache_path.read_bytes()).hexdigest() != config.get("cache_sha256"):
+        raise ValueError("Nested run cache hash differs from config.json")
+    cache = load_checkpoint(cache_path)
+    validate_training_cache(cache)
+    results = json.loads(results_path.read_text())
+    if results.get("status") != "complete":
+        raise ValueError("Nested results are not complete")
+    validate_nested_results(results)
+    validate_nested_protocol(results, config["protocol"])
+    if (results.get("cache_sha256") != config.get("cache_sha256")
+            or results.get("source_sha256") != config.get("source_sha256")
+            or results.get("preprocessing_id") != cache.get("preprocessing_id")
+            or results.get("forward_sha256") != cache.get("forward_sha256")
+            or config.get("forward_sha256") != cache.get("forward_sha256")
+            or results.get("scoring_id") != SCORING_ID
+            or results.get("frequencies_hz") != cache["frequencies_hz"].tolist()
+            or results.get("subject_ids") != [s["subject_id"] for s in cache["subjects"]]
+            or config.get("subject_ids") != results["subject_ids"]):
+        raise ValueError("Nested results, config, and cache provenance do not match")
+    prepared = {
+        subject["subject_id"]: prepare_spectral_subject(subject)
+        for subject in cache["subjects"]
+    }
+    verified_rows = []
+    for outer in results["outer_folds"]:
+        checkpoint = load_checkpoint(_artifact_path(run_dir, outer["checkpoint_path"]))
+        predictions = load_checkpoint(_artifact_path(run_dir, outer["prediction_path"]))
+        expected_checkpoint = {
+            "format_version": 1,
+            "evaluation": "nested_cross_validation",
+            "outer_fold": outer["outer_fold"],
+            "selected_candidate_id": outer["selected_candidate_id"],
+            "model_config": outer["outer_refit"]["model_config"],
+            "training_config": outer["outer_refit"]["training_config"],
+            "training_subject_ids": outer["training_subject_ids"],
+            "test_subject_ids": outer["test_subject_ids"],
+            "inner_splits": outer["inner_splits"],
+            "cache_sha256": results["cache_sha256"],
+            "forward_sha256": results["forward_sha256"],
+            "source_sha256": results["source_sha256"],
+        }
+        if any(checkpoint.get(key) != value for key, value in expected_checkpoint.items()):
+            raise ValueError("Nested checkpoint settings or provenance differ from the selected refit")
+        if (predictions.get("outer_fold") != outer["outer_fold"]
+                or predictions.get("selected_candidate_id") != outer["selected_candidate_id"]
+                or set(predictions.get("subject_predictions", {})) != set(outer["test_subject_ids"])):
+            raise ValueError("Saved outer predictions do not match the test fold")
+        model = FeGraphMLP(**checkpoint["model_config"])
+        model.load_state_dict(checkpoint["state_dict"])
+        replayed = evaluate_filter(
+            model, [prepared[value] for value in outer["test_subject_ids"]], cache["omega"]
+        )
+        replay_by_id = {row["subject_id"]: row for row in replayed}
+        for row in outer["outer_subject_records"]:
+            subject_id = row["subject_id"]
+            replay = replay_by_id[subject_id]
+            saved = predictions["subject_predictions"][subject_id]
+            for name in ("learned_prediction", "analytical_prediction", "Fe_graph"):
+                expected = replay[name]
+                actual = saved.get(name)
+                if (not torch.is_tensor(actual) or actual.shape != expected.shape
+                        or not torch.allclose(actual, expected, atol=1e-12, rtol=1e-12)):
+                    raise ValueError(f"{subject_id}: checkpoint replay differs for {name}")
+            scores = {
+                "analytical_r": replay["analytical_correlation"],
+                "learned_r": replay["learned_correlation"],
+                "raw_r_difference": replay["correlation_difference"],
+            }
+            if any(not math.isclose(row[key], value, abs_tol=1e-12, rel_tol=1e-12)
+                   for key, value in scores.items()):
+                raise ValueError(f"{subject_id}: recomputed nested scores differ from saved results")
+            verified_rows.append({
+                **row, **scores,
+                "n_regions": int(prepared[subject_id]["empirical_meg"].shape[0]),
+            })
+
+    summary = summarize_outer_scores(
+        verified_rows, [candidate["candidate_id"] for candidate in results["candidates"]]
+    )
+    validate_outer_summary(results["outer_summary"], summary)
+    # Use the validated stored scores for exact statistical reconstruction;
+    # checkpoint replay can introduce harmless floating-point rounding.
+    saved_rows = [row for outer in results["outer_folds"] for row in outer["outer_subject_records"]]
+    from .statistics import paired_fisher_z_test
+
+    expected_statistics = []
+    if "selected_mlp_vs_analytical" in results["protocol"]["declared_comparisons"]:
+        expected_statistics.append(paired_fisher_z_test(
+            {row["subject_id"]: row["learned_r"] for row in saved_rows},
+            {row["subject_id"]: row["analytical_r"] for row in saved_rows},
+            left_label="nested_selected_mlp", right_label="analytical",
+            contrast="selected_mlp_vs_analytical", expected_subject_ids=results["subject_ids"],
+            provenance={
+                "cache_sha256": results["cache_sha256"],
+                "preprocessing_id": results["preprocessing_id"],
+                "forward_sha256": results["forward_sha256"],
+                "scoring_id": SCORING_ID,
+            },
+        ))
+    if not _matching_statistics(results.get("statistics"), expected_statistics):
+        raise ValueError("Saved nested statistics differ from the validated subject scores")
+    return results, verified_rows
+
+
+# Fixed-configuration verification
 
 
 def validate_loocv_results(results, cache):
@@ -68,33 +252,51 @@ def validate_loocv_results(results, cache):
     return results, cache, subjects
 
 
-def summarize_outer_scores(rows, candidate_ids):
-    """Calculate equally weighted outer metrics from subject records."""
-    if not rows:
-        raise ValueError("Outer summary requires subject records")
-    return {
-        "n_subject_predictions": len(rows),
-        "mean_analytical_r": math.fsum(row["analytical_r"] for row in rows) / len(rows),
-        "mean_selected_mlp_r": math.fsum(row["learned_r"] for row in rows) / len(rows),
-        "mean_raw_r_difference": math.fsum(row["raw_r_difference"] for row in rows) / len(rows),
-        "selected_candidate_counts": {
-            candidate_id: sum(row["selected_candidate_id"] == candidate_id for row in rows)
-            for candidate_id in candidate_ids
-        },
-    }
+@torch.no_grad()
+def verify_loocv_checkpoints(run_dir, results, cache, config):
+    """Reject missing weights or predictions that do not match their saved model."""
+    model_config = {"activation": "tanh", **results["model_config"]}
+    saved_model_config = {"activation": "tanh", **config["model_config"]}
+    if model_config != saved_model_config:
+        raise ValueError("LOOCV model settings differ from config.json")
+    for key in ("epochs", "learning_rate", "seed"):
+        if results["training_config"][key] != config["training_config"][key]:
+            raise ValueError("LOOCV training settings differ from config.json")
+    subjects = {subject["subject_id"]: prepare_spectral_subject(subject)
+                for subject in cache["subjects"]}
+    scores = []
+    for fold in results["folds"]:
+        checkpoint = load_checkpoint(_artifact_path(run_dir.resolve(), fold["checkpoint_path"]))
+        expected = {
+            "held_out_subject_id": fold["held_out_subject_id"],
+            "training_subject_ids": fold["training_subject_ids"],
+            "training_config": results["training_config"],
+            "forward_sha256": results["forward_sha256"],
+            "preprocessing_id": results["preprocessing_id"],
+        }
+        checkpoint_model = {"activation": "tanh", **checkpoint["model_config"]}
+        if checkpoint_model != model_config or any(checkpoint.get(k) != v for k, v in expected.items()):
+            raise ValueError("LOOCV checkpoint settings differ from the saved fold")
+        model = FeGraphMLP(**model_config)
+        model.load_state_dict(checkpoint["state_dict"])
+        replay = evaluate_filter(model, [subjects[fold["held_out_subject_id"]]], cache["omega"])[0]
+        for key in ("analytical_prediction", "learned_prediction", "Fe_graph"):
+            if (fold[key].shape != replay[key].shape
+                    or not torch.allclose(fold[key], replay[key], atol=1e-12, rtol=1e-12)):
+                raise ValueError(f"LOOCV checkpoint replay differs for {key}")
+        for key in ("analytical_correlation", "learned_correlation", "correlation_difference"):
+            if not math.isclose(fold[key], replay[key], abs_tol=1e-12, rel_tol=1e-12):
+                raise ValueError(f"LOOCV checkpoint replay differs for {key}")
+        scores.append(replay)
+    for field, key in (("mean_analytical_correlation", "analytical_correlation"),
+                       ("mean_learned_correlation", "learned_correlation"),
+                       ("mean_correlation_difference", "correlation_difference")):
+        expected_mean = math.fsum(row[key] for row in scores) / len(scores)
+        if not math.isclose(results[field], expected_mean, abs_tol=1e-12, rel_tol=1e-12):
+            raise ValueError(f"LOOCV summary differs from replay: {field}")
 
 
-def validate_outer_summary(saved, expected):
-    """Reject aggregate values that contradict validated subject records."""
-    if not isinstance(saved, dict) or set(saved) != set(expected):
-        raise ValueError("Outer summary must contain all calculated metrics")
-    for key, value in expected.items():
-        if isinstance(value, float):
-            matches = math.isclose(float(saved[key]), value, abs_tol=1e-12, rel_tol=1e-12)
-        else:
-            matches = saved[key] == value
-        if not matches:
-            raise ValueError(f"Outer summary differs from subject records: {key}")
+# Nested protocol, selection, and record verification
 
 
 def validate_nested_protocol(results, requested):
@@ -270,6 +472,35 @@ def validate_nested_results(results):
     return results
 
 
+def summarize_outer_scores(rows, candidate_ids):
+    """Calculate equally weighted outer metrics from subject records."""
+    if not rows:
+        raise ValueError("Outer summary requires subject records")
+    return {
+        "n_subject_predictions": len(rows),
+        "mean_analytical_r": math.fsum(row["analytical_r"] for row in rows) / len(rows),
+        "mean_selected_mlp_r": math.fsum(row["learned_r"] for row in rows) / len(rows),
+        "mean_raw_r_difference": math.fsum(row["raw_r_difference"] for row in rows) / len(rows),
+        "selected_candidate_counts": {
+            candidate_id: sum(row["selected_candidate_id"] == candidate_id for row in rows)
+            for candidate_id in candidate_ids
+        },
+    }
+
+
+def validate_outer_summary(saved, expected):
+    """Reject aggregate values that contradict validated subject records."""
+    if not isinstance(saved, dict) or set(saved) != set(expected):
+        raise ValueError("Outer summary must contain all calculated metrics")
+    for key, value in expected.items():
+        if isinstance(value, float):
+            matches = math.isclose(float(saved[key]), value, abs_tol=1e-12, rel_tol=1e-12)
+        else:
+            matches = saved[key] == value
+        if not matches:
+            raise ValueError(f"Outer summary differs from subject records: {key}")
+
+
 def _artifact_path(run_dir, relative_path):
     path = Path(relative_path)
     resolved = (run_dir / path).resolve()
@@ -292,134 +523,10 @@ def _matching_statistics(saved, expected):
     return type(saved) is type(expected) and saved == expected
 
 
-@torch.no_grad()
-def load_nested_run(run_dir, config=None, *, require_complete=False):
-    """Verify protocol, files, checkpoints, predictions, and reported metrics.
-
-    Queue completion and analysis use this same read-only gate. Analysis may
-    run while config status is ``analyzing``; results must already be complete.
-    """
-    run_dir = Path(run_dir).resolve()
-    if config is None:
-        config = json.loads((run_dir / "config.json").read_text())
-    if (config.get("evaluation") != "nested_cross_validation"
-            or config.get("format_version") != 1):
-        raise ValueError("Unsupported nested run configuration")
-    allowed_statuses = {"complete"} if require_complete else {"analyzing", "complete"}
-    if config.get("status") not in allowed_statuses:
-        raise ValueError("Nested run configuration is not complete or ready for analysis")
-    cache_path = _artifact_path(run_dir, config["cache_path"])
-    results_path = _artifact_path(run_dir, config.get("results_path", "nested_results.json"))
-    if hashlib.sha256(cache_path.read_bytes()).hexdigest() != config.get("cache_sha256"):
-        raise ValueError("Nested run cache hash differs from config.json")
-    cache = load_checkpoint(cache_path)
-    validate_training_cache(cache)
-    results = json.loads(results_path.read_text())
-    if results.get("status") != "complete":
-        raise ValueError("Nested results are not complete")
-    validate_nested_results(results)
-    validate_nested_protocol(results, config["protocol"])
-    if (results.get("cache_sha256") != config.get("cache_sha256")
-            or results.get("source_sha256") != config.get("source_sha256")
-            or results.get("preprocessing_id") != cache.get("preprocessing_id")
-            or results.get("forward_sha256") != cache.get("forward_sha256")
-            or config.get("forward_sha256") != cache.get("forward_sha256")
-            or results.get("scoring_id") != SCORING_ID
-            or results.get("frequencies_hz") != cache["frequencies_hz"].tolist()
-            or results.get("subject_ids") != [s["subject_id"] for s in cache["subjects"]]
-            or config.get("subject_ids") != results["subject_ids"]):
-        raise ValueError("Nested results, config, and cache provenance do not match")
-    prepared = {
-        subject["subject_id"]: prepare_spectral_subject(subject)
-        for subject in cache["subjects"]
-    }
-    verified_rows = []
-    for outer in results["outer_folds"]:
-        checkpoint = load_checkpoint(_artifact_path(run_dir, outer["checkpoint_path"]))
-        predictions = load_checkpoint(_artifact_path(run_dir, outer["prediction_path"]))
-        expected_checkpoint = {
-            "format_version": 1,
-            "evaluation": "nested_cross_validation",
-            "outer_fold": outer["outer_fold"],
-            "selected_candidate_id": outer["selected_candidate_id"],
-            "model_config": outer["outer_refit"]["model_config"],
-            "training_config": outer["outer_refit"]["training_config"],
-            "training_subject_ids": outer["training_subject_ids"],
-            "test_subject_ids": outer["test_subject_ids"],
-            "inner_splits": outer["inner_splits"],
-            "cache_sha256": results["cache_sha256"],
-            "forward_sha256": results["forward_sha256"],
-            "source_sha256": results["source_sha256"],
-        }
-        if any(checkpoint.get(key) != value for key, value in expected_checkpoint.items()):
-            raise ValueError("Nested checkpoint settings or provenance differ from the selected refit")
-        if (predictions.get("outer_fold") != outer["outer_fold"]
-                or predictions.get("selected_candidate_id") != outer["selected_candidate_id"]
-                or set(predictions.get("subject_predictions", {})) != set(outer["test_subject_ids"])):
-            raise ValueError("Saved outer predictions do not match the test fold")
-        model = FeGraphMLP(**checkpoint["model_config"])
-        model.load_state_dict(checkpoint["state_dict"])
-        replayed = evaluate_filter(
-            model, [prepared[value] for value in outer["test_subject_ids"]], cache["omega"]
-        )
-        replay_by_id = {row["subject_id"]: row for row in replayed}
-        for row in outer["outer_subject_records"]:
-            subject_id = row["subject_id"]
-            replay = replay_by_id[subject_id]
-            saved = predictions["subject_predictions"][subject_id]
-            for name in ("learned_prediction", "analytical_prediction", "Fe_graph"):
-                expected = replay[name]
-                actual = saved.get(name)
-                if (not torch.is_tensor(actual) or actual.shape != expected.shape
-                        or not torch.allclose(actual, expected, atol=1e-12, rtol=1e-12)):
-                    raise ValueError(f"{subject_id}: checkpoint replay differs for {name}")
-            scores = {
-                "analytical_r": replay["analytical_correlation"],
-                "learned_r": replay["learned_correlation"],
-                "raw_r_difference": replay["correlation_difference"],
-            }
-            if any(not math.isclose(row[key], value, abs_tol=1e-12, rel_tol=1e-12)
-                   for key, value in scores.items()):
-                raise ValueError(f"{subject_id}: recomputed nested scores differ from saved results")
-            verified_rows.append({
-                **row, **scores,
-                "n_regions": int(prepared[subject_id]["empirical_meg"].shape[0]),
-            })
-
-    summary = summarize_outer_scores(
-        verified_rows, [candidate["candidate_id"] for candidate in results["candidates"]]
-    )
-    validate_outer_summary(results["outer_summary"], summary)
-    # Use the validated stored scores for exact statistical reconstruction;
-    # checkpoint replay can introduce harmless floating-point rounding.
-    saved_rows = [row for outer in results["outer_folds"] for row in outer["outer_subject_records"]]
-    from .statistics import paired_fisher_z_test
-
-    expected_statistics = []
-    if "selected_mlp_vs_analytical" in results["protocol"]["declared_comparisons"]:
-        expected_statistics.append(paired_fisher_z_test(
-            {row["subject_id"]: row["learned_r"] for row in saved_rows},
-            {row["subject_id"]: row["analytical_r"] for row in saved_rows},
-            left_label="nested_selected_mlp", right_label="analytical",
-            contrast="selected_mlp_vs_analytical", expected_subject_ids=results["subject_ids"],
-            provenance={
-                "cache_sha256": results["cache_sha256"],
-                "preprocessing_id": results["preprocessing_id"],
-                "forward_sha256": results["forward_sha256"],
-                "scoring_id": SCORING_ID,
-            },
-        ))
-    if not _matching_statistics(results.get("statistics"), expected_statistics):
-        raise ValueError("Saved nested statistics differ from the validated subject scores")
-    return results, verified_rows
+# Spectrum and table utilities
 
 
-def _load_inputs(results, cache):
-    """Match every held-out prediction to its cached empirical subject."""
-    return validate_loocv_results(results, cache)
-
-
-def _normalized_spectra(values):
+def normalize_spectra(values):
     transformed = transform_spectra(values)
     norms = transformed.norm(dim=-1, keepdim=True)
     if not torch.isfinite(transformed).all() or (norms <= 1e-12).any():
@@ -427,77 +534,19 @@ def _normalized_spectra(values):
     return transformed / norms
 
 
-def _region_scores(prediction, target):
-    return (_normalized_spectra(prediction) * _normalized_spectra(target)).sum(dim=-1)
+def regional_scores(prediction, target):
+    return (normalize_spectra(prediction) * normalize_spectra(target)).sum(dim=-1)
 
 
-def _analytical_filter(subject, frequencies):
+def analytical_graph_filter(subject, frequencies):
     tau_e = subject["parameters"]["tau_e"]
     omega = 2 * torch.pi * frequencies
     return (1 / tau_e**2) / (1j * omega + 1 / tau_e)**2
 
 
-def _write_csv(path, rows):
+def write_csv(path, rows):
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
     return path
-
-
-def load_loocv_scores(run_dir):
-    run_dir = Path(run_dir).resolve()
-    config_path = run_dir / "config.json"
-    config = json.loads(config_path.read_text())
-    cache_path = run_dir / config.get("cache_path", "cache/cohort_training_v2.pt")
-    result_path = run_dir / config.get("results_path", "results.pt")
-    cache_hash = hashlib.sha256(cache_path.read_bytes()).hexdigest()
-    if config.get("cache_sha256") != cache_hash:
-        raise ValueError(f"{run_dir.name}: cache hash differs from config.json")
-    results, cache, subjects = validate_loocv_results(result_path, cache_path)
-    if results.get("loss_preprocessing") != "magnitude_conv5_sqrt_floor1e-12_demean":
-        raise ValueError(f"{run_dir.name}: unsupported saved scoring convention")
-    if results.get("scoring_id", SCORING_ID) != SCORING_ID:
-        raise ValueError(f"{run_dir.name}: scoring IDs differ")
-    ids = list(subjects)
-    region_maps = {
-        subject_id: subjects[subject_id]["observed_regions"].tolist()
-        for subject_id in ids
-    }
-    provenance = {
-        "run_dir": str(run_dir),
-        "cache_sha256": cache_hash,
-        "preprocessing_id": cache["preprocessing_id"],
-        "forward_sha256": cache["forward_sha256"],
-        "frequencies_hz": cache["frequencies_hz"].tolist(),
-        "subject_ids": ids,
-        "observed_region_maps": region_maps,
-        "scoring_id": SCORING_ID,
-    }
-    subject_table_path = run_dir / "tables/subject_scores.csv"
-    table = {}
-    if subject_table_path.is_file():
-        with subject_table_path.open(newline="", encoding="utf-8") as stream:
-            for row in csv.DictReader(stream):
-                subject_id = row["subject_id"]
-                if subject_id in table:
-                    raise ValueError(f"{run_dir.name}: duplicate subject score table row")
-                table[subject_id] = row
-
-    learned = {}
-    analytical = {}
-    for fold in results["folds"]:
-        subject_id = fold["held_out_subject_id"]
-        learned[subject_id] = float(fold["learned_correlation"])
-        analytical[subject_id] = float(fold["analytical_correlation"])
-        if table:
-            if subject_id not in table:
-                raise ValueError(f"{run_dir.name}: subject score table is missing {subject_id}")
-            if not math.isclose(float(table[subject_id]["learned_correlation"]), learned[subject_id],
-                                abs_tol=1e-12, rel_tol=1e-12):
-                raise ValueError(f"{run_dir.name}: subject score table differs for {subject_id}")
-            if not math.isclose(float(table[subject_id]["analytical_correlation"]), analytical[subject_id],
-                                abs_tol=1e-12, rel_tol=1e-12):
-                raise ValueError(f"{run_dir.name}: analytical score table differs for {subject_id}")
-    return {"learned": learned, "analytical": analytical, "provenance": provenance}
-

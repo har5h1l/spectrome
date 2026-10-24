@@ -5,7 +5,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .helpers import _load_inputs, _normalized_spectra, _analytical_filter
+from .helpers import (
+    validate_loocv_results, normalize_spectra, analytical_graph_filter, load_saved_object,
+)
 
 ANALYTICAL_COLOR = "C0"
 LEARNED_COLOR = "C1"
@@ -20,11 +22,44 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
     normalization, matching Pearson correlation's shape comparison. Default
     example regions are the first, middle, and last observed rows in every fold.
     """
+    results, cache, subjects = validate_loocv_results(results, cache)
+    histories = [fold["history"] for fold in results["folds"]]
+    return _plot_evaluation(results["folds"], histories, cache, subjects, output_dir,
+                            region_rows=region_rows)
+
+
+@torch.no_grad()
+def plot_nested_results(run_dir, results, cache, output_dir):
+    """Draw checked outer predictions; count each refit once in loss curves.
+
+    The report loader must verify checkpoints and saved predictions first.
+    Inner validation scores do not enter these plots.
+    """
+    subjects = {subject["subject_id"]: subject for subject in cache["subjects"]}
+    subject_records, histories = [], []
+    for outer in results["outer_folds"]:
+        predictions = load_saved_object(Path(run_dir) / outer["prediction_path"])
+        histories.append(outer["outer_refit"]["training_history"])
+        for row in outer["outer_subject_records"]:
+            subject_records.append({
+                "held_out_subject_id": row["subject_id"],
+                "analytical_correlation": row["analytical_r"],
+                "learned_correlation": row["learned_r"],
+                **predictions["subject_predictions"][row["subject_id"]],
+            })
+    # Keep the source cohort order, including when an outer fold has several subjects.
+    by_id = {row["held_out_subject_id"]: row for row in subject_records}
+    subject_records = [by_id[subject["subject_id"]] for subject in cache["subjects"]]
+    return _plot_evaluation(subject_records, histories, cache, subjects, output_dir)
+
+
+@torch.no_grad()
+def _plot_evaluation(subject_records, histories, cache, subjects, output_dir, *, region_rows=None):
+    """Share figure styling across fixed and nested held-out evaluations."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    results, cache, subjects = _load_inputs(results, cache)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -47,18 +82,24 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
         plt.rcParams.update({"font.size": 9, "axes.titlesize": 9,
                              "axes.labelsize": 9, "legend.fontsize": 8,
                              "lines.linewidth": 1.2})
-        folds = results["folds"]
+        folds = subject_records
         figure, ax = plt.subplots(figsize=(5, 3.2), layout="constrained")
-        histories = []
-        for fold in folds:
-            epochs = [row["epoch"] for row in fold["history"]]
-            losses = [row["train_loss_before_step"] for row in fold["history"]]
-            ax.plot(epochs, losses, color="0.7", alpha=0.6, linewidth=0.6)
-            histories.append(losses)
-        if all([row["epoch"] for row in fold["history"]] == epochs for fold in folds):
-            ax.plot(epochs, np.mean(histories, axis=0), color="black", label="Mean")
+        for history in histories:
+            epochs = [row["epoch"] for row in history]
+            losses = [row["train_loss_before_step"] for row in history]
+            ax.plot(epochs, losses, color="0.7", alpha=0.6, linewidth=0.6,
+                    marker="o" if len(epochs) == 1 else None)
+        same_epochs = all([row["epoch"] for row in history] == epochs for history in histories)
+        if same_epochs:
+            ax.plot(epochs, np.mean([[row["train_loss_before_step"] for row in history]
+                                    for history in histories], axis=0), color="black", label="Mean",
+                    marker="o" if len(epochs) == 1 else None)
         ax.set(xlabel="Epoch", ylabel="Training loss (1 − r)")
-        ax.legend(frameon=False)
+        ax.set_title("Outer-refit training loss")
+        if all(len(history) == 1 for history in histories):
+            ax.set_xticks([1])
+        if same_epochs:
+            ax.legend(frameon=False)
         save(figure, "summary/training_curves")
 
         analytical = np.array([fold["analytical_correlation"] for fold in folds])
@@ -99,7 +140,7 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
             ("MLP", "learned_prediction", LEARNED_COLOR, "-"),
         ):
             values = torch.stack([
-                _normalized_spectra(subjects[f["held_out_subject_id"]][key]
+                normalize_spectra(subjects[f["held_out_subject_id"]][key]
                                     if label == "MEG" else f[key]) for f in folds
             ]).numpy()  # subjects x regions x frequencies
             cohort_series.append((label, values, color, linestyle))
@@ -159,7 +200,7 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
                       ("Analytical", fold["analytical_prediction"], ANALYTICAL_COLOR, "--"),
                       ("MLP", fold["learned_prediction"], LEARNED_COLOR, "-")]
             for label, values, color, linestyle in series:
-                shapes = _normalized_spectra(values).numpy()
+                shapes = normalize_spectra(values).numpy()
                 for axis, row in zip(axes[0], rows):
                     axis.plot(frequencies, shapes[row], label=label, color=color, linestyle=linestyle)
             for axis, row in zip(axes[0], rows):
@@ -170,7 +211,7 @@ def plot_results(results, cache, output_dir, *, region_rows=None):
             save(figure, f"{folder}/spectra")
 
             figure, axes = plt.subplots(1, 2, figsize=(6, 2.8), sharex=True, layout="constrained")
-            baseline = _analytical_filter(subject, cache["frequencies_hz"]).numpy()
+            baseline = analytical_graph_filter(subject, cache["frequencies_hz"]).numpy()
             for label, values, color, linestyle in (
                 ("Analytical", baseline, ANALYTICAL_COLOR, "--"),
                 ("MLP", fold["Fe_graph"].numpy(), LEARNED_COLOR, "-"),

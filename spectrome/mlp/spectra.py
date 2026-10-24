@@ -93,8 +93,12 @@ def evaluate_filter(model, subjects, omega):
     for subject in subjects:
         analytical = predict_spectra(subject)
         learned = predict_spectra(subject, filters)
-        analytical_score = subject_correlation(subject).item()
-        learned_score = subject_correlation(subject, filters).item()
+        analytical_score = spectral_correlation(
+            analytical, subject["transformed_target"], target_norm=subject["target_norm"]
+        ).item()
+        learned_score = spectral_correlation(
+            learned, subject["transformed_target"], target_norm=subject["target_norm"]
+        ).item()
         records.append({
             "subject_id": subject["subject_id"],
             "analytical_prediction": analytical.detach().cpu().clone(),

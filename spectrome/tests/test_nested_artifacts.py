@@ -216,6 +216,12 @@ def test_nested_experiment_retains_shared_run_log(completed_run):
     log = (run_dir / "training.log").read_text()
     assert "starting nested cross-validation" in log
     assert "Complete:" in log
+    assert "outer=1/3 candidate=small inner=1/2" in log
+    assert "refit=small epoch=1/1" in log
+    config = json.loads((run_dir / "config.json").read_text())
+    assert {"git_commit", "git_dirty", "torch_version", "torch_threads", "device", "dtype"} <= config.keys()
+    for name in ("training_curves", "held_out_scores", "spectra_across_subjects", "spectra_by_region"):
+        assert (run_dir / "figures" / "summary" / f"{name}.png").is_file()
 
 
 def test_referenced_candidates_match_explicit_run_and_analysis_needs_no_catalog(completed_run, tmp_path):
@@ -242,7 +248,7 @@ def test_referenced_candidates_match_explicit_run_and_analysis_needs_no_catalog(
     assert _outputs(directory) == before
 
 
-def test_grouped_run_is_verified_with_unequal_outer_fold_sizes(completed_run, tmp_path):
+def test_grouped_run_is_verified_with_unequal_outer_fold_sizes(completed_run, tmp_path, monkeypatch):
     _, cache_path, protocol = completed_run
     cache = torch.load(cache_path, weights_only=True)
     for index, subject in enumerate(list(cache["subjects"])[:2]):
@@ -260,3 +266,16 @@ def test_grouped_run_is_verified_with_unequal_outer_fold_sizes(completed_run, tm
     assert result["outer_summary"]["mean_selected_mlp_r"] == pytest.approx(
         sum(row["learned_r"] for row in rows) / 5
     )
+    from spectrome.mlp.analysis import plots
+    captured = {}
+
+    def capture_plot_inputs(subject_records, histories, *args, **kwargs):
+        captured.update(subject_records=subject_records, histories=histories)
+        return []
+
+    monkeypatch.setattr(plots, "_plot_evaluation", capture_plot_inputs)
+    plots.plot_nested_results(run_dir, result, cache, tmp_path / "unused-figures")
+    assert [row["held_out_subject_id"] for row in captured["subject_records"]] == [
+        subject["subject_id"] for subject in cache["subjects"]
+    ]
+    assert len(captured["histories"]) == 2  # Refits, not five test subjects.
