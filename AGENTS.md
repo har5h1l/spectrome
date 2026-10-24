@@ -10,6 +10,7 @@ Read [`agent_docs/README.md`](agent_docs/README.md), then follow its read order.
 
 - Check the current code, saved artifacts, and Git status before making claims or changes. Active notes can lag behind the checkout.
 - Preserve unrelated working-tree changes. Keep changes within the user's stated scope.
+- Put disposable verification logs, source snapshots, inventories, and receipts in `/tmp` or test-managed temporary directories. Do not create `artifacts/mlp-*` folders for routine code checks. Keep durable scientific outputs under `results/` and reusable regression inputs with the tests.
 - Separate implementation checks, saved experiment results, interpretation, and proposed work. Do not present a prior receipt as a fresh run.
 - Do not launch experiments or change model, notebook, or experiment settings unless the user has authorized that work and the active experiment contract is settled.
 - When a task changes behavior, update relevant documentation and run the focused checks required by the affected code. Do not run experiments to validate documentation-only changes.

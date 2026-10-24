@@ -10,14 +10,17 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from spectrome.tests.test_cohort_training import records, small_cache
-from spectrome.training.analysis import analyze_run, export_results, plot_results
-from spectrome.training.train import run_experiment, train_filter
-from spectrome.training import train
+from spectrome.mlp.training import run as run_module
+from spectrome.mlp.training import helpers as run_helpers
+from spectrome.mlp.training import loocv as cross_validation
+from spectrome.mlp.analysis import analyze_run, export_results, plot_results
+from spectrome.mlp.training.loocv import run_loocv
+from spectrome.mlp.training.run import run_experiment
 
 
 @pytest.fixture
 def saved_result(small_cache, tmp_path):
-    result = train_filter(small_cache, tmp_path / "results.pt", hidden_sizes=(4,),
+    result = run_loocv(small_cache, tmp_path / "results.pt", hidden_sizes=(4,),
                           omega_scale=100, epochs=2, learning_rate=1e-3, seed=7,
                           checkpoint_dir=tmp_path / "checkpoints")
     return result
@@ -83,7 +86,7 @@ def test_run_folder_owns_cache_and_rejects_overwrite(small_cache, monkeypatch, t
         torch.save(small_cache, path)
         return small_cache
 
-    monkeypatch.setattr(train, "generate_training_data", prepare)
+    monkeypatch.setattr(run_helpers, "generate_training_data", prepare)
     directory = run_experiment(tmp_path / "verification", epochs=2, hidden_sizes=(4,),
                                omega_scale=100)
     config = json.loads((directory / "config.json").read_text())
@@ -96,10 +99,10 @@ def test_run_folder_owns_cache_and_rejects_overwrite(small_cache, monkeypatch, t
     assert "fold=3/3 epoch=2" in (directory / "training.log").read_text()
     with pytest.raises(FileExistsError):
         run_experiment(directory)
-    # Figures/tables can be regenerated without calling train_filter.
+    # Figures/tables can be regenerated without calling run_loocv.
     def no_training(*args, **kwargs):
         raise AssertionError("Analysis must not retrain")
-    monkeypatch.setattr(train, "train_filter", no_training)
+    monkeypatch.setattr(cross_validation, "run_loocv", no_training)
     regenerated = analyze_run(directory)
     assert len(regenerated["tables"]) == 4
     assert len(regenerated["figures"]) == 10
@@ -124,8 +127,8 @@ def test_failed_run_retains_error_and_log(tmp_path):
 def test_cache_reuse_copies_and_rejects_stale_source(small_cache, tmp_path, monkeypatch):
     source = tmp_path / "source.pt"
     torch.save(small_cache, source)
-    monkeypatch.setattr(train, "generate_training_data", lambda *a, **k: pytest.fail("cache was rebuilt"))
-    monkeypatch.setattr(train, "analyze_run", lambda *a, **k: None)
+    monkeypatch.setattr(run_helpers, "generate_training_data", lambda *a, **k: pytest.fail("cache was rebuilt"))
+    monkeypatch.setattr(run_module, "analyze_run", lambda *a, **k: None)
     directory = run_experiment(tmp_path / "reused", cache_source=source,
                                epochs=1, hidden_sizes=(4,), omega_scale=100,
                                activation="sigmoid")

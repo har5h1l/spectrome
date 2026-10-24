@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("torch")
-from spectrome.training import run
+from spectrome.mlp.training import run
+from spectrome.mlp.training.helpers import resolve_nested_protocol
 
 
 PARAMETERS = dict(hidden_sizes=[8], activation="tanh", omega_scale=282.7433388230814,
@@ -29,7 +30,7 @@ def completed(directory, *, seed=7):
 
 
 def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
-    entries = json.loads(Path(run.__file__).with_name("experiments.json").read_text())
+    entries = json.loads(Path(run.__file__).with_name("training_runs.json").read_text())
     assert [entry["results_dir"] for entry in entries] == [f"basic_mlp_{i}" for i in range(16)]
     expected = [(widths, activation, epochs)
                 for widths in ([8], [32], [32, 32])
@@ -53,7 +54,7 @@ def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch):
 
 
 def test_shipped_queue_skips_both_completed_runs_and_selects_remaining(tmp_path, monkeypatch):
-    entries = json.loads(Path(run.__file__).with_name("experiments.json").read_text())
+    entries = json.loads(Path(run.__file__).with_name("training_runs.json").read_text())
     root = tmp_path / "results"
     for entry in entries[:2]:
         directory = root / entry["results_dir"]
@@ -121,3 +122,77 @@ def test_training_failure_stops_before_later_experiments(tmp_path, monkeypatch):
 def test_output_directory_must_stay_inside_results(tmp_path):
     with pytest.raises(ValueError, match="inside"):
         run.run_experiments(queue(tmp_path, "../outside"), results_root=tmp_path / "results")
+
+
+def test_nested_candidates_use_selected_json_settings_in_declared_order():
+    requested = {"candidate_run_ids": ["basic_mlp_15", "basic_mlp_6"], "training_seed": 7}
+    resolved = resolve_nested_protocol(requested)
+    entries = {entry["results_dir"]: entry["parameters"]
+               for entry in run.load_training_runs()}
+    assert [candidate["candidate_id"] for candidate in resolved["candidates"]] == requested["candidate_run_ids"]
+    for candidate in resolved["candidates"]:
+        assert {**candidate["model_config"], **candidate["training_config"], "seed": 7} == entries[candidate["candidate_id"]]
+    assert "candidates" not in requested
+    assert "candidate_run_ids" not in resolved
+
+
+@pytest.mark.parametrize("ids, message", [
+    ([], "nonempty"), ([6], "run names"), ("basic_mlp_6", "list"),
+    (["basic_mlp_6", "basic_mlp_6"], "unique"), (["missing"], "Unknown"),
+])
+def test_invalid_nested_references_fail_before_creating_run(tmp_path, ids, message):
+    destination = tmp_path / "invalid"
+    with pytest.raises(ValueError, match=message):
+        run.run_experiment(destination, cache_source="unused.pt", protocol={
+            "training_seed": 7, "candidate_run_ids": ids,
+        })
+    assert not destination.exists()
+
+
+def test_nested_references_reject_ambiguous_settings_and_seed():
+    with pytest.raises(ValueError, match="not both"):
+        resolve_nested_protocol({"candidate_run_ids": ["basic_mlp_6"], "candidates": []})
+    with pytest.raises(ValueError, match="seed differs"):
+        resolve_nested_protocol({"candidate_run_ids": ["basic_mlp_6"], "training_seed": 8})
+
+
+def test_nested_queue_resolves_candidates_from_its_own_file(tmp_path, monkeypatch):
+    cache = tmp_path / "cache.pt"
+    cache.write_bytes(b"mocked runner does not load this cache")
+    entries = [{"results_dir": "custom", "parameters": PARAMETERS}, {
+        "results_dir": "nested", "evaluation": "nested_cross_validation",
+        "cache_source": str(cache),
+        "protocol": {"training_seed": 7, "candidate_run_ids": ["custom"]},
+    }]
+    path = tmp_path / "runs.json"
+    path.write_text(json.dumps(entries))
+    calls = []
+    monkeypatch.setattr(run, "run_experiment", lambda directory, **kw: calls.append((directory, kw)))
+    run.run_experiments(path, results_root=tmp_path / "results")
+    assert calls[0][1] == PARAMETERS
+    candidates = calls[1][1]["protocol"]["candidates"]
+    assert candidates == [{
+        "candidate_id": "custom",
+        "model_config": {key: PARAMETERS[key] for key in ("hidden_sizes", "omega_scale", "activation")},
+        "training_config": {key: PARAMETERS[key] for key in ("epochs", "learning_rate")},
+    }]
+
+
+@pytest.mark.parametrize("damage, message", [
+    ("duplicate", "Duplicate training run ID"),
+    ("nested", "fixed training configuration"),
+    ("missing_parameter", "must specify exactly"),
+])
+def test_nested_candidate_catalog_validation(tmp_path, damage, message):
+    entry = {"results_dir": "candidate", "parameters": dict(PARAMETERS)}
+    entries = [entry]
+    if damage == "duplicate":
+        entries.append(entry)
+    elif damage == "nested":
+        entry["evaluation"] = "nested_cross_validation"
+    else:
+        del entry["parameters"]["seed"]
+    path = tmp_path / "runs.json"
+    path.write_text(json.dumps(entries))
+    with pytest.raises(ValueError, match=message):
+        resolve_nested_protocol({"training_seed": 7, "candidate_run_ids": ["candidate"]}, path)

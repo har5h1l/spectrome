@@ -10,12 +10,13 @@ torch = pytest.importorskip("torch")
 
 from spectrome.tests.test_historical_torch_parity import DATA, FREQS, prepared_brain
 from spectrome.forward.network_transfer import network_transfer_local_alpha
-from spectrome.training import data, spectra
-from spectrome.training.data import generate_training_data, prepare_spectral_subject
-from spectrome.training.model import FeGraphMLP
-from spectrome.training.spectra import predict_spectra
-from spectrome.training.train import train_filter
-from spectrome.training.helpers import load_fold_checkpoint
+from spectrome.mlp import spectra
+from spectrome.mlp.data import data
+from spectrome.mlp.data import generate_training_data, prepare_spectral_subject
+from spectrome.mlp.model import FeGraphMLP
+from spectrome.mlp.spectra import predict_spectra
+from spectrome.mlp.training.loocv import run_loocv
+from spectrome.mlp.training.helpers import load_fold_checkpoint
 
 
 @pytest.fixture(scope="module")
@@ -134,7 +135,7 @@ def test_loocv_folds_fresh_models_and_reload(small_cache, monkeypatch, tmp_path)
     monkeypatch.setattr(torch.optim, "Adam", RecordingAdam)
     output = tmp_path / "result.pt"
     before = small_cache["subjects"][0]["parameters"]["alpha"].clone()
-    result = train_filter(small_cache, output, hidden_sizes=[4], omega_scale=100,
+    result = run_loocv(small_cache, output, hidden_sizes=[4], omega_scale=100,
                           epochs=2, learning_rate=0.001, seed=7)
     ids = [subject["subject_id"] for subject in small_cache["subjects"]]
     assert len(result["folds"]) == len(optimizers) == len(ids)
@@ -161,10 +162,10 @@ def test_loocv_folds_fresh_models_and_reload(small_cache, monkeypatch, tmp_path)
 
 def test_held_out_targets_cannot_change_its_trained_weights(small_cache, tmp_path):
     settings = dict(hidden_sizes=[4], omega_scale=100, epochs=2, learning_rate=0.001, seed=7)
-    before = train_filter(small_cache, tmp_path / "before.pt", **settings)
+    before = run_loocv(small_cache, tmp_path / "before.pt", **settings)
     held_out = small_cache["subjects"][0]
     held_out["empirical_meg"] = held_out["empirical_meg"].flip(-1)
-    after = train_filter(small_cache, tmp_path / "after.pt", **settings)
+    after = run_loocv(small_cache, tmp_path / "after.pt", **settings)
     first = load_fold_checkpoint(tmp_path / "before.pt", before["folds"][0])
     second = load_fold_checkpoint(tmp_path / "after.pt", after["folds"][0])
     assert first["history"] == second["history"]
@@ -175,10 +176,10 @@ def test_held_out_targets_cannot_change_its_trained_weights(small_cache, tmp_pat
 def test_loocv_rejects_single_subject_and_old_split_cache(small_cache, tmp_path):
     settings = dict(hidden_sizes=[4], omega_scale=100, epochs=1, learning_rate=0.001, seed=7)
     with pytest.raises(ValueError, match="at least two"):
-        train_filter({**small_cache, "subjects": small_cache["subjects"][:1]},
+        run_loocv({**small_cache, "subjects": small_cache["subjects"][:1]},
                      tmp_path / "single.pt", **settings)
     with pytest.raises(ValueError, match="version 2"):
-        train_filter({**small_cache, "format_version": 1}, tmp_path / "old.pt", **settings)
+        run_loocv({**small_cache, "format_version": 1}, tmp_path / "old.pt", **settings)
 
 
 @pytest.mark.parametrize("activation", ["tanh", "sigmoid"])
@@ -218,7 +219,7 @@ def test_final_training_scores_and_portable_checkpoints(small_cache, tmp_path):
     import shutil
     directory = tmp_path / "original"
     output = directory / "results.pt"
-    result = train_filter(small_cache, output, hidden_sizes=(4,), omega_scale=100,
+    result = run_loocv(small_cache, output, hidden_sizes=(4,), omega_scale=100,
                           epochs=2, learning_rate=0.001, seed=7, activation="sigmoid",
                           checkpoint_dir=directory / "checkpoints")
     moved = tmp_path / "moved"

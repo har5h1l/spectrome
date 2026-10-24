@@ -12,10 +12,10 @@ torch = pytest.importorskip("torch")
 
 from spectrome.tests.test_historical_torch_parity import DATA, FREQS, prepared_brain, transformed_spectra
 from spectrome.forward.network_transfer_torch import run_local_coupling_forward_torch
-from spectrome.training.model import FeGraphMLP
-from spectrome.training.data import generate_training_data
-from spectrome.training.spectra import predict_spectra, spectral_correlation, transform_spectra
-from spectrome.training.train import train_filter
+from spectrome.mlp.model import FeGraphMLP
+from spectrome.mlp.data import generate_training_data
+from spectrome.mlp.spectra import predict_spectra, spectral_correlation, transform_spectra
+from spectrome.mlp.training.loocv import run_loocv
 
 
 @pytest.fixture(scope="module")
@@ -90,5 +90,5 @@ def test_unverified_data_cannot_be_prepared_or_trained(historical_record, replay
                                preprocessing_id="historical_notebook_preparation")
     assert not (tmp_path / "invalid.pt").exists()
     with pytest.raises(ValueError, match="historical replay"):
-        train_filter(replay_cache, tmp_path / "model.pt", hidden_sizes=[4],
+        run_loocv(replay_cache, tmp_path / "model.pt", hidden_sizes=[4],
                      omega_scale=100, epochs=1, learning_rate=0.001, seed=7)

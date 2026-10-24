@@ -48,15 +48,16 @@ python -m pytest spectrome/tests/test_network_transfer_torch.py spectrome/tests/
 
 The analytical Torch equations and frequency sweep live in
 `spectrome/forward/network_transfer_torch.py`. The frequency-only shared MLP,
-chronological cohort preparation, and leave-one-subject-out training live in
-[`spectrome/training`](spectrome/training/README.md). Run the complete test suite
-with `python -m pytest spectrome/tests -q`.
+chronological cohort preparation, evaluation, and analysis live in
+[`spectrome/mlp`](spectrome/mlp/README.md). Run the complete test suite with
+`python -m pytest spectrome/tests -q`.
 
-The complete learned-filter workflow is available through the Python function
-`spectrome.training.train.run_experiment`. It creates one Git-ignored results folder
+The fixed-configuration learned-filter workflow is available through
+`spectrome.mlp.training.run.run_experiment`. It creates one Git-ignored results folder
 containing that run's cache, configuration, checkpoints, CSV tables, and PNG
-figures. See the [training guide](spectrome/training/README.md) for the accepted
-first-run settings and analysis-only regeneration.
+figures. The same entry point accepts an explicit candidate list and split protocol
+for nested cross-validation. See the [MLP guide](spectrome/mlp/README.md)
+for both workflows and analysis-only regeneration.
 
 If you want to be able to run `spectrome` from anywhere, just add it's path to your PYTHONPATH. For instance, if you downloaded `spectrome` to `~/Documents/spectrome` do `export PYTHONPATH=$PYTHONPATH:~/Documents/spectrome`. You may have to restart your terminal to make sure this change takes effect.
 

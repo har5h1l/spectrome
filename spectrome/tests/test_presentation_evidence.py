@@ -20,13 +20,14 @@ def collector():
     return module
 
 
-def test_evidence_hashes_resolve_current_training_modules(collector):
+def test_evidence_hashes_resolve_current_mlp_modules(collector):
     hashes = collector.collect_source_hashes()
-    training_paths = {name for name in hashes if name.startswith("spectrome/training/")}
-    assert training_paths == {
-        f"spectrome/training/{name}.py"
-        for name in ("data", "model", "spectra", "train", "helpers", "analysis")
-    }
+    assert not any(name.startswith("spectrome/training/") for name in hashes)
+    mlp_paths = {name for name in hashes if name.startswith("spectrome/mlp/")}
+    assert "spectrome/mlp/training/training.py" in mlp_paths
+    assert "spectrome/mlp/training/loocv.py" in mlp_paths
+    assert "spectrome/mlp/analysis/statistics.py" in mlp_paths
+    assert "spectrome/forward/network_transfer_torch.py" in hashes
     for name, digest in hashes.items():
         assert digest == hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
 
