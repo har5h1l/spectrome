@@ -10,6 +10,7 @@ from .helpers import (
     DEFAULT_PARAMETERS, validate_run_inputs, initialize_run, run_log,
     prepare_run_cache, record_training_complete, record_run_complete, record_run_failure,
     load_training_runs, queue_run_directory, queue_run_arguments, completed_run_matches,
+    parse_run_arguments, load_nested_protocol,
 )
 
 HIDDEN_SIZES = DEFAULT_PARAMETERS["hidden_sizes"]
@@ -86,5 +87,17 @@ def run_experiments(config_path=None, *, results_root=None):
     return completed
 
 
+def main(argv=None):
+    """Run an explicit nested protocol, or the historical batch with no arguments."""
+    arguments = parse_run_arguments(argv)
+    if arguments.protocol is None:
+        return run_experiments()
+    return run_experiment(
+        arguments.run_dir, cache_source=arguments.cache_source,
+        protocol=load_nested_protocol(arguments.protocol),
+        training_runs_path=arguments.training_runs_path,
+    )
+
+
 if __name__ == "__main__":
-    run_experiments()
+    main()

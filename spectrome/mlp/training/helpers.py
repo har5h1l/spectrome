@@ -171,6 +171,31 @@ def validate_gradients(model, epoch):
 # Candidate catalogs and batch entries
 
 
+def parse_run_arguments(argv=None):
+    """Require explicit protocol, cache, and output paths for a nested launch."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Run a fixed batch or one explicit nested evaluation.")
+    parser.add_argument("--protocol", type=Path, help="Nested protocol JSON file")
+    parser.add_argument("--cache-source", type=Path, help="Verified version-2 cohort cache")
+    parser.add_argument("--run-dir", type=Path, help="New output directory; existing folders are refused")
+    parser.add_argument("--training-runs-path", type=Path, help="Optional candidate catalog JSON file")
+    arguments = parser.parse_args(argv)
+    if arguments.protocol is None:
+        if any((arguments.cache_source, arguments.run_dir, arguments.training_runs_path)):
+            parser.error("--protocol is required with nested-run arguments")
+    elif arguments.cache_source is None or arguments.run_dir is None:
+        parser.error("--protocol requires --cache-source and --run-dir")
+    return arguments
+
+
+def load_nested_protocol(path):
+    """Load declared settings before any output folder or model is created."""
+    protocol = json.loads(Path(path).read_text())
+    if not isinstance(protocol, dict):
+        raise ValueError("Nested protocol JSON must contain an object")
+    return protocol
+
+
 def load_training_runs(config_path=None):
     """Read declared batch settings without starting any run."""
     path = Path(config_path) if config_path is not None else Path(__file__).with_name("training_runs.json")

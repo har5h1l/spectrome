@@ -93,6 +93,22 @@ python -m spectrome.mlp.training.run
 This command skips complete matching runs and starts missing runs. Importing
 the package does not start the queue.
 
+For the agreed five-by-five nested evaluation, use the explicit command:
+
+```bash
+python -m spectrome.mlp.training.run \
+  --protocol spectrome/mlp/training/nested_protocol.json \
+  --cache-source results/cache/cohort_training_v2.pt \
+  --run-dir results/experiments/nested_fivefold_six_candidates
+```
+
+The protocol selects runs 6, 10, 12, 13, 14, and 15 from the existing catalog,
+with split seed 1701 and training seed 7. It requires 155 fits: 150 inner fits
+and five outer refits. The declared contrast is selected MLP versus analytical.
+Choose a new output folder for each launch. All three command arguments are
+required together; an incomplete nested command fails before training. With no
+arguments, the module retains the historical fixed-configuration batch behavior.
+
 ## Nested cross-validation uses the same fitter
 
 Pass a nested protocol to the same `run_experiment()` function:

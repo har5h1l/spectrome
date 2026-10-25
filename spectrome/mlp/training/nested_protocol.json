@@ -1,0 +1,16 @@
+{
+  "outer_strategy": "grouped_kfold",
+  "outer_folds": 5,
+  "inner_folds": 5,
+  "split_seed": 1701,
+  "training_seed": 7,
+  "candidate_run_ids": [
+    "basic_mlp_6",
+    "basic_mlp_10",
+    "basic_mlp_12",
+    "basic_mlp_13",
+    "basic_mlp_14",
+    "basic_mlp_15"
+  ],
+  "declared_comparisons": ["selected_mlp_vs_analytical"]
+}
