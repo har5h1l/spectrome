@@ -44,10 +44,16 @@ and loss history. It does not choose held-out subjects, rank configurations,
 write run folders, or generate reports.
 
 Supporting functions stay in `helpers.py` so the main procedures show the
-scientific steps. Training helpers are grouped in reading order: settings and
-candidate catalogs, subject splits, run preparation and logging, nested result
-records, then checkpoint and JSON files. Analysis helpers group loading,
-verification, and report utilities. Shared utility names describe their purpose.
+scientific steps. Training helpers group fit/protocol validation, candidate
+catalogs, subject splits and nested preparation, run status and logging, nested
+records, and file IO. Analysis helpers group loading, verification, plot-input
+preparation, table rows, and summary formatting.
+
+The main nested loop is commented in six steps: prepare splits, compare
+candidates on inner folds, select settings, fit a fresh outer model, evaluate
+the outer test subjects, and save evidence. Its candidate and inner-fold loops
+remain visible. `train_filter()` similarly keeps scoring, differentiation,
+updating, and loss-history recording together; helpers own validation details.
 
 The training arithmetic is unchanged: CPU float64, a declared seed reset just
 before model construction, one full-batch Adam update per epoch, and loss equal
@@ -167,7 +173,9 @@ outputs = analyze_run("results/experiments/my_run")
 The same API handles nested folders. `analyze_run()` loads through helpers and
 selects `_write_loocv_report()` or `_write_nested_report()` to format the saved
 results. These are internal report writers, not separate training or evaluation
-runs. `analysis.py` exports tables and writes reports; `plots.py` draws figures. Normalized spectra and correlation describe
+runs. `analysis.py` coordinates tables, figures, and reports; helpers build the
+row collections and summary text. `plots.py` has named functions for training
+curves, held-out scores, cohort spectra, and subject figures. Normalized spectra and correlation describe
 shape, not calibrated absolute power. Sample-SD bands describe variation across
 subjects, not confidence intervals.
 

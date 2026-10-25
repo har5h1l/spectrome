@@ -4,7 +4,7 @@ import torch
 
 from ..model import FeGraphMLP
 from ..spectra import subject_correlation
-from .helpers import validate_fit_settings
+from .helpers import validate_training_inputs, validate_loss, validate_gradients
 
 
 def train_filter(training_subjects, omega, model_config, training_config, *, on_epoch=None):
@@ -14,9 +14,7 @@ def train_filter(training_subjects, omega, model_config, training_config, *, on_
     fit. This function does not make splits, inspect held-out subjects, choose
     settings, write files, or create plots.
     """
-    if not training_subjects:
-        raise ValueError("training_subjects must not be empty")
-    validate_fit_settings(model_config, training_config)
+    validate_training_inputs(training_subjects, model_config, training_config)
     epochs = training_config["epochs"]
     learning_rate = training_config["learning_rate"]
     seed = training_config["seed"]
@@ -29,6 +27,7 @@ def train_filter(training_subjects, omega, model_config, training_config, *, on_
     history = []
     for epoch in range(1, epochs + 1):
         model.train()
+        # Score the same shared filter across every training subject.
         optimizer.zero_grad()
         filters = model(omega)
         train_scores = torch.stack([
@@ -36,13 +35,14 @@ def train_filter(training_subjects, omega, model_config, training_config, *, on_
             for subject in training_subjects
         ])
         loss = 1 - train_scores.mean()
-        if not torch.isfinite(loss):
-            raise ValueError(f"Epoch {epoch}: nonfinite loss")
+        validate_loss(loss, epoch)
+
+        # Differentiate the mean subject loss and update only the MLP weights.
         loss.backward()
-        if any(parameter.grad is None or not torch.isfinite(parameter.grad).all()
-               for parameter in model.parameters()):
-            raise ValueError(f"Epoch {epoch}: missing/nonfinite gradient")
+        validate_gradients(model, epoch)
         optimizer.step()
+
+        # Record the loss measured before this epoch's optimizer update.
         entry = {"epoch": epoch, "train_loss_before_step": loss.item()}
         history.append(entry)
         if on_epoch is not None:

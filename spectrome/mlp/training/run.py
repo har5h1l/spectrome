@@ -2,14 +2,13 @@
 
 from pathlib import Path
 import time
-import traceback
 
 from ..analysis import analyze_run
 from .loocv import run_loocv
 from .nested_cv import nested_cross_validate
 from .helpers import (
     DEFAULT_PARAMETERS, validate_run_inputs, initialize_run, run_log,
-    prepare_run_cache, record_training_complete, record_run_complete, save_run_record,
+    prepare_run_cache, record_training_complete, record_run_complete, record_run_failure,
     load_training_runs, queue_run_directory, queue_run_arguments, completed_run_matches,
 )
 
@@ -27,6 +26,7 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
                    activation="tanh", cache_source=None, protocol=None,
                    training_runs_path=None):
     """Prepare data, run the requested CV procedure, and analyze its outputs."""
+    # Validate settings before creating the output folder.
     parameters = {
         "hidden_sizes": hidden_sizes, "omega_scale": omega_scale,
         "epochs": epochs, "learning_rate": learning_rate, "seed": seed, "activation": activation,
@@ -43,6 +43,7 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
     with run_log(run_dir):
         try:
             print(f"Run folder: {run_dir}", flush=True)
+            # Prepare fixed subject inputs, then run the requested evaluation.
             cache = prepare_run_cache(run_dir, config, preparation, cache_source)
             started = time.perf_counter()
             if protocol is None:
@@ -57,15 +58,14 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
                     cache_sha256=config["cache_sha256"],
                     candidate_execution_order=protocol.get("candidate_execution_order"),
                 )
+            # Verify saved results and generate the tables, figures, and report.
             record_training_complete(run_dir, config, started)
             started = time.perf_counter()
             analyze_run(run_dir)
             record_run_complete(run_dir, config, started, results)
             print(f"Complete: {run_dir}", flush=True)
         except Exception as error:
-            config.update({"status": "failed", "error": f"{type(error).__name__}: {error}"})
-            save_run_record(run_dir, config)
-            traceback.print_exc()
+            record_run_failure(run_dir, config, error)
             raise
     return run_dir
 

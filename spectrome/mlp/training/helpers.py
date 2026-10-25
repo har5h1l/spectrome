@@ -26,7 +26,7 @@ DEFAULT_PARAMETERS = {
 }
 
 
-# Settings and candidate catalogs
+# Fit and protocol validation
 
 
 def validate_fit_settings(model_config, training_config):
@@ -52,6 +52,13 @@ def validate_fit_settings(model_config, training_config):
     seed = training_config["seed"]
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("seed must be an integer")
+
+
+def validate_training_inputs(subjects, model_config, training_config):
+    """Validate one fit before initialization or random-state changes."""
+    if not subjects:
+        raise ValueError("training_subjects must not be empty")
+    validate_fit_settings(model_config, training_config)
 
 
 def normalize_candidates(candidates, training_seed):
@@ -131,6 +138,39 @@ def validate_run_inputs(parameters, preparation, cache_source, protocol, *, trai
     return parameters, protocol
 
 
+def validate_candidate_scores(candidates, candidate_scores, subject_ids):
+    """Require one finite validation score per outer-training subject and candidate."""
+    ids = list(subject_ids)
+    if not ids or len(ids) != len(set(ids)):
+        raise ValueError("Selection requires unique subject IDs")
+    declared_ids = [candidate["candidate_id"] for candidate in candidates]
+    if len(declared_ids) != len(set(declared_ids)) or set(candidate_scores) != set(declared_ids):
+        raise ValueError("Every declared candidate must have exactly one score mapping")
+    for candidate_id in declared_ids:
+        scores = candidate_scores[candidate_id]
+        if set(scores) != set(ids):
+            raise ValueError(f"{candidate_id}: inner scores must cover every training subject once")
+        values = [float(scores[subject_id]) for subject_id in ids]
+        if any(not math.isfinite(value) or not -1 <= value <= 1 for value in values):
+            raise ValueError(f"{candidate_id}: inner scores must be finite correlations")
+
+
+def validate_loss(loss, epoch):
+    """Stop immediately when an epoch produces a nonfinite loss."""
+    if not torch.isfinite(loss):
+        raise ValueError(f"Epoch {epoch}: nonfinite loss")
+
+
+def validate_gradients(model, epoch):
+    """Require a finite gradient for every trainable model parameter."""
+    if any(parameter.grad is None or not torch.isfinite(parameter.grad).all()
+           for parameter in model.parameters()):
+        raise ValueError(f"Epoch {epoch}: missing/nonfinite gradient")
+
+
+# Candidate catalogs and batch entries
+
+
 def load_training_runs(config_path=None):
     """Read declared batch settings without starting any run."""
     path = Path(config_path) if config_path is not None else Path(__file__).with_name("training_runs.json")
@@ -205,7 +245,7 @@ def queue_run_arguments(experiment, directory, config_path=None):
     return parameters
 
 
-# Subject splits
+# Subject splits and nested preparation
 
 
 def _subject_ids(subject_ids):
@@ -306,6 +346,35 @@ def make_inner_splits(subject_ids, *, n_splits=5, seed=7):
     if seen != all_ids:
         raise RuntimeError("Generated inner validation memberships do not cover the outer training set")
     return result
+
+
+def prepare_nested_evaluation(cache, protocol, candidate_execution_order=None):
+    """Check all inputs and realize every split before the first model fit."""
+    validate_nested_settings(protocol)
+    validate_training_cache(cache)
+    subject_ids = [subject["subject_id"] for subject in cache["subjects"]]
+    if len(subject_ids) < 3 or len(set(subject_ids)) != len(subject_ids):
+        raise ValueError("Nested evaluation requires at least three subjects with unique IDs")
+    candidates = normalize_candidates(protocol["candidates"], protocol["training_seed"])
+    candidate_ids = [candidate["candidate_id"] for candidate in candidates]
+    execution_order = candidate_execution_order or candidate_ids
+    if len(execution_order) != len(set(execution_order)) or set(execution_order) != set(candidate_ids):
+        raise ValueError("candidate_execution_order must contain every candidate exactly once")
+    split_seed = protocol["split_seed"]
+    outer_strategy = protocol["outer_strategy"]
+    outer_folds = protocol.get("outer_folds")
+    inner_folds = protocol["inner_folds"]
+    training_seed = protocol["training_seed"]
+    splits = make_outer_splits(
+        subject_ids, strategy=outer_strategy, n_splits=outer_folds, seed=split_seed
+    )
+    inner_splits_by_outer = {
+        outer["outer_fold"]: make_inner_splits(
+            outer["training_subject_ids"], n_splits=inner_folds,
+            seed=inner_split_seed(split_seed, outer["outer_fold"]),
+        ) for outer in splits
+    }
+    return candidates, execution_order, splits, inner_splits_by_outer
 
 
 # Run preparation, status, and logging
@@ -446,6 +515,14 @@ def record_run_complete(run_dir, config, started, results):
     save_run_record(run_dir, config)
 
 
+def record_run_failure(run_dir, config, error):
+    """Preserve failed-run status and the exception traceback in its log."""
+    import traceback
+    config.update({"status": "failed", "error": f"{type(error).__name__}: {error}"})
+    save_run_record(run_dir, config)
+    traceback.print_exc()
+
+
 def completed_run_matches(directory, arguments):
     """Skip only complete matching runs; reject partial or conflicting runs."""
     if not directory.exists():
@@ -507,6 +584,18 @@ class Tee:
     def flush(self):
         self.console.flush()
         self.log.flush()
+
+
+def nested_fit_progress(outer_fold, outer_count, candidate, inner_split=None, inner_count=None):
+    """Label one fit and return its bounded epoch reporter."""
+    candidate_id = candidate["candidate_id"]
+    if inner_split is None:
+        label = f"outer={outer_fold}/{outer_count} refit={candidate_id}"
+    else:
+        label = (f"outer={outer_fold}/{outer_count} candidate={candidate_id} "
+                 f"inner={inner_split['inner_fold']}/{inner_count}")
+    print(f"Starting {label}", flush=True)
+    return report_nested_epoch(label, candidate["training_config"]["epochs"])
 
 
 def report_nested_epoch(label, epochs):
