@@ -82,7 +82,13 @@ def subject_correlation(subject, Fe_graph=None):
 
 @torch.no_grad()
 def evaluate_filter(model, subjects, omega):
-    """Evaluate one fitted model on supplied subjects and return subject records."""
+    """Evaluate a fitted model for each caller-selected subject.
+
+    Compute the shared graph filter once, then score each supplied subject
+    independently against its measured spectrum. Return one record per subject,
+    in input order. Pass a one-subject list for LOOCV or a fold's subject list
+    for grouped validation or test evaluation.
+    """
     if not subjects:
         raise ValueError("subjects must not be empty")
     model.eval()

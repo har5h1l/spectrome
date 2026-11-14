@@ -158,6 +158,65 @@ def paired_fisher_z_test(left_scores, right_scores, *, left_label, right_label,
 
 
 
+def apply_bonferroni(comparisons, *, family_name, planned_contrasts, alpha=0.05):
+    """Apply Bonferroni correction to one explicitly declared test family.
+
+    The planned contrast names define the family before results are examined.
+    Each planned contrast must have one result record; an undefined raw
+    p-value still counts toward the family size.
+    """
+    if not isinstance(family_name, str) or not family_name.strip():
+        raise ValueError("family_name must be a nonempty string")
+    try:
+        alpha = float(alpha)
+    except (TypeError, ValueError) as error:
+        raise ValueError("alpha must be numeric and strictly between 0 and 1") from error
+    if not math.isfinite(alpha) or not 0 < alpha < 1:
+        raise ValueError("alpha must be finite and strictly between 0 and 1")
+
+    planned = list(planned_contrasts)
+    if (not planned or any(not isinstance(name, str) or not name for name in planned)
+            or len(planned) != len(set(planned))):
+        raise ValueError("planned_contrasts must contain unique nonempty names")
+    records = list(comparisons)
+    observed = [record.get("contrast") for record in records]
+    if len(observed) != len(set(observed)) or set(observed) != set(planned):
+        raise ValueError("comparison records must match planned_contrasts exactly")
+
+    family_size = len(planned)
+    adjusted = []
+    for record in records:
+        result = dict(record)
+        raw_p = result.get("p_value_unadjusted")
+        if raw_p is None:
+            adjusted_p = significant = None
+        else:
+            raw_p = float(raw_p)
+            if not math.isfinite(raw_p) or not 0 <= raw_p <= 1:
+                raise ValueError(f"{result['contrast']}: raw p-value must be between 0 and 1")
+            adjusted_p = min(1.0, family_size * raw_p)
+            significant = adjusted_p <= alpha
+        result["adjustment"] = {
+            "method": "Bonferroni",
+            "family": family_name,
+            "planned_contrasts": list(planned),
+            "planned_tests": family_size,
+            "alpha": alpha,
+            "raw_p_value_threshold": alpha / family_size,
+            "p_value": adjusted_p,
+            "significant": significant,
+        }
+        adjusted.append(result)
+    return {
+        "family": family_name,
+        "method": "Bonferroni",
+        "alpha": alpha,
+        "planned_contrasts": list(planned),
+        "planned_tests": family_size,
+        "comparisons": adjusted,
+    }
+
+
 def _require_matching_provenance(left, right):
     keys = ("cache_sha256", "preprocessing_id", "forward_sha256", "frequencies_hz",
             "subject_ids", "observed_region_maps", "scoring_id")
