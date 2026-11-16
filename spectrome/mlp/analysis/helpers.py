@@ -33,24 +33,46 @@ def load_saved_object(value):
     )
 
 
-def load_loocv_run(run_dir, config):
+def _cache_values_match(left, right):
+    if type(left) is not type(right):
+        return False
+    if torch.is_tensor(left):
+        return left.dtype == right.dtype and torch.equal(left, right)
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _cache_values_match(left[key], right[key]) for key in left
+        )
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(
+            _cache_values_match(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
+def load_loocv_run(run_dir, config, *, reference_cache=None):
     """Verify the cache and replay every saved fixed-configuration checkpoint."""
     run_dir = Path(run_dir)
     cache_path = run_dir / config["cache_path"]
     if hashlib.sha256(cache_path.read_bytes()).hexdigest() != config["cache_sha256"]:
         raise ValueError("Run cache hash differs from config.json")
     results, cache, _ = validate_loocv_results(run_dir / config["results_path"], cache_path)
-    validate_training_cache(cache)
+    if reference_cache is not None:
+        validate_training_cache(reference_cache)
+        matching_source = {**cache, "forward_sha256": reference_cache["forward_sha256"]}
+        if not _cache_values_match(matching_source, reference_cache):
+            raise ValueError(f"{run_dir.name}: historical cache inputs differ from the reference")
+    else:
+        validate_training_cache(cache)
     verify_loocv_checkpoints(run_dir, results, cache, config)
     return results, cache
 
 
-def load_loocv_scores(run_dir):
+def load_loocv_scores(run_dir, *, reference_cache=None):
     """Load verified fixed-run subject scores and their comparison provenance."""
     run_dir = Path(run_dir).resolve()
     config_path = run_dir / "config.json"
     config = json.loads(config_path.read_text())
-    results, cache = load_loocv_run(run_dir, config)
+    results, cache = load_loocv_run(run_dir, config, reference_cache=reference_cache)
     subjects = {subject["subject_id"]: subject for subject in cache["subjects"]}
     if results.get("loss_preprocessing") != "magnitude_conv5_sqrt_floor1e-12_demean":
         raise ValueError(f"{run_dir.name}: unsupported saved scoring convention")
@@ -73,13 +95,16 @@ def load_loocv_scores(run_dir):
     }
     subject_table_path = run_dir / "tables/subject_scores.csv"
     table = {}
-    if subject_table_path.is_file():
+    has_table = subject_table_path.is_file()
+    if has_table:
         with subject_table_path.open(newline="", encoding="utf-8") as stream:
             for row in csv.DictReader(stream):
                 subject_id = row["subject_id"]
                 if subject_id in table:
                     raise ValueError(f"{run_dir.name}: duplicate subject score table row")
                 table[subject_id] = row
+        if set(table) != set(ids):
+            raise ValueError(f"{run_dir.name}: subject score table must match the cached subject IDs")
 
     learned = {}
     analytical = {}
@@ -87,9 +112,7 @@ def load_loocv_scores(run_dir):
         subject_id = fold["held_out_subject_id"]
         learned[subject_id] = float(fold["learned_correlation"])
         analytical[subject_id] = float(fold["analytical_correlation"])
-        if table:
-            if subject_id not in table:
-                raise ValueError(f"{run_dir.name}: subject score table is missing {subject_id}")
+        if has_table:
             if not math.isclose(float(table[subject_id]["learned_correlation"]), learned[subject_id],
                                 abs_tol=1e-12, rel_tol=1e-12):
                 raise ValueError(f"{run_dir.name}: subject score table differs for {subject_id}")
@@ -256,8 +279,9 @@ def validate_loocv_results(results, cache):
 @torch.no_grad()
 def verify_loocv_checkpoints(run_dir, results, cache, config):
     """Reject missing weights or predictions that do not match their saved model."""
-    model_config = {"activation": "tanh", **results["model_config"]}
-    saved_model_config = {"activation": "tanh", **config["model_config"]}
+    model_defaults = {"activation": "tanh", "tau_e_conditioned": False}
+    model_config = {**model_defaults, **results["model_config"]}
+    saved_model_config = {**model_defaults, **config["model_config"]}
     if model_config != saved_model_config:
         raise ValueError("LOOCV model settings differ from config.json")
     for key in ("epochs", "learning_rate", "seed"):
@@ -275,7 +299,7 @@ def verify_loocv_checkpoints(run_dir, results, cache, config):
             "forward_sha256": results["forward_sha256"],
             "preprocessing_id": results["preprocessing_id"],
         }
-        checkpoint_model = {"activation": "tanh", **checkpoint["model_config"]}
+        checkpoint_model = {**model_defaults, **checkpoint["model_config"]}
         if checkpoint_model != model_config or any(checkpoint.get(k) != v for k, v in expected.items()):
             raise ValueError("LOOCV checkpoint settings differ from the saved fold")
         model = FeGraphMLP(**model_config)

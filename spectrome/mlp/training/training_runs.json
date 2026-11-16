@@ -219,5 +219,210 @@
       "learning_rate": 0.0003,
       "seed": 7
     }
+  },
+  {
+    "results_dir": "basic_mlp_16",
+    "parameters": {
+      "hidden_sizes": [
+        256,
+        256,
+        256,
+        256,
+        256
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_17",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_18",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_19",
+    "parameters": {
+      "hidden_sizes": [
+        64,
+        64,
+        64,
+        64,
+        64
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7
+    }
+  },
+  {
+    "results_dir": "basic_mlp_18_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_19_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        64,
+        64,
+        64,
+        64,
+        64
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_13_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_12_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.001,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_15_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        32,
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_16_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        256,
+        256,
+        256,
+        256,
+        256
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_14_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        32
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
+  },
+  {
+    "results_dir": "basic_mlp_17_tau_e",
+    "parameters": {
+      "hidden_sizes": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "activation": "tanh",
+      "omega_scale": 282.7433388230814,
+      "epochs": 5000,
+      "learning_rate": 0.0003,
+      "seed": 7,
+      "tau_e_conditioned": true
+    }
   }
 ]

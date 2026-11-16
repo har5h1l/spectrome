@@ -37,17 +37,23 @@ def mock_result_verification(monkeypatch):
 
 def test_shipped_queue_and_completed_baseline_skip(tmp_path, monkeypatch, mock_result_verification):
     entries = json.loads(Path(run.__file__).with_name("training_runs.json").read_text())
-    assert [entry["results_dir"] for entry in entries] == [f"basic_mlp_{i}" for i in range(16)]
+    entries, conditioned = entries[:20], entries[20:]
+    assert [entry["results_dir"] for entry in entries] == [f"basic_mlp_{i}" for i in range(20)]
+    assert conditioned == [
+        {"results_dir": f"basic_mlp_{i}_tau_e",
+         "parameters": {**entries[i]["parameters"], "tau_e_conditioned": True}}
+        for i in (18, 19, 13, 12, 15, 16, 14, 17)
+    ]
     expected = [(widths, activation, epochs)
                 for widths in ([8], [32], [32, 32])
                 for epochs in (100, 500) for activation in ("tanh", "sigmoid")]
     expected.append(([128] * 5, "tanh", 5000))
-    expected.extend((widths, "tanh", 5000) for widths in ([128] * 5, [32], [32, 32]))
+    expected.extend((widths, "tanh", 5000) for widths in ([128] * 5, [32], [32, 32], [256] * 5, [128] * 7, [128] * 3, [64] * 5))
     assert [(e["parameters"]["hidden_sizes"], e["parameters"]["activation"],
              e["parameters"]["epochs"]) for e in entries] == expected
     assert all(e["parameters"][key] == PARAMETERS[key] for e in entries
                for key in ("omega_scale", "seed"))
-    assert [e["parameters"]["learning_rate"] for e in entries] == [0.001] * 13 + [0.0003] * 3
+    assert [e["parameters"]["learning_rate"] for e in entries] == [0.001] * 13 + [0.0003] * 7
     baseline, next_run = [entry["parameters"] for entry in entries[:2]]
     assert {**baseline, "activation": "sigmoid"} == next_run
     path = tmp_path / "baseline_only.json"
@@ -110,6 +116,26 @@ def test_mismatched_completed_settings_stop(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "run_experiment", lambda *a, **k: pytest.fail("Do not overwrite"))
     with pytest.raises(ValueError, match="settings differ"):
         run.run_experiments(queue(tmp_path, "existing"), results_root=root)
+
+
+@pytest.mark.parametrize("saved_conditioned", [False, True])
+def test_completed_runs_cannot_substitute_the_other_condition(tmp_path, monkeypatch, saved_conditioned):
+    root = tmp_path / "results"
+    directory = root / "existing"
+    completed(directory)
+    config_path = directory / "config.json"
+    path = queue(tmp_path, "existing")
+    if saved_conditioned:
+        config = json.loads(config_path.read_text())
+        config["model_config"]["tau_e_conditioned"] = True
+        config_path.write_text(json.dumps(config))
+    else:
+        entries = json.loads(path.read_text())
+        entries[0]["parameters"]["tau_e_conditioned"] = True
+        path.write_text(json.dumps(entries))
+    monkeypatch.setattr(run, "run_experiment", lambda *a, **k: pytest.fail("Do not overwrite"))
+    with pytest.raises(ValueError, match="settings differ"):
+        run.run_experiments(path, results_root=root)
 
 
 def test_training_failure_stops_before_later_experiments(tmp_path, monkeypatch):

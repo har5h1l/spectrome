@@ -14,7 +14,8 @@ from .training import train_filter
 
 
 def run_loocv(cache, output_path, *, hidden_sizes, omega_scale,
-                 epochs, learning_rate, seed, checkpoint_dir=None, activation="tanh"):
+                 epochs, learning_rate, seed, checkpoint_dir=None, activation="tanh",
+                 tau_e_conditioned=False):
     """Fit and evaluate a fixed configuration with leave-one-subject-out folds."""
     forward_hash = validate_training_cache(cache)
     if isinstance(epochs, bool) or not isinstance(epochs, int) or epochs < 1:
@@ -36,13 +37,15 @@ def run_loocv(cache, output_path, *, hidden_sizes, omega_scale,
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     model_config = {"hidden_sizes": hidden_sizes, "omega_scale": omega_scale,
-                    "activation": activation}
+                    "activation": activation,
+                    "tau_e_conditioned": tau_e_conditioned}
     training_config = {"epochs": epochs, "learning_rate": learning_rate, "seed": seed}
     metadata = {
         "format_version": 1,
         "evaluation": "leave_one_subject_out",
         "model_config": {"hidden_sizes": list(hidden_sizes), "omega_scale": float(omega_scale),
-                         "activation": activation},
+                         "activation": activation,
+                         "tau_e_conditioned": tau_e_conditioned},
         "training_config": {"epochs": epochs, "learning_rate": learning_rate,
                             "seed": seed, "optimizer": "Adam"},
         "selection_rule": "final epoch of fixed budget; no held-out selection",
@@ -71,14 +74,20 @@ def run_loocv(cache, output_path, *, hidden_sizes, omega_scale,
         )
         evaluation = evaluate_filter(model, [held_out], omega)[0]
         with torch.no_grad():
-            filters = model(omega)
             analytical_training_score = sum(
                 score for index, score in enumerate(analytical_scores)
                 if index != held_out_index
             ) / len(training_subjects)
-            learned_training_score = torch.stack([
-                subject_correlation(subject, filters) for subject in training_subjects
-            ]).mean().item()
+            if model.tau_e_conditioned:
+                train_filter_scores = [
+                    subject_correlation(subject, model(omega, subject["parameters"].get("tau_e")))
+                    for subject in training_subjects
+                ]
+            else:
+                filters = model(omega)
+                train_filter_scores = [subject_correlation(subject, filters)
+                                       for subject in training_subjects]
+            learned_training_score = torch.stack(train_filter_scores).mean().item()
 
         fold_path = checkpoint_dir / f"{output_path.stem}.fold-{held_out_index + 1:03d}.pt"
         fold = {

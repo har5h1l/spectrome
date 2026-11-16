@@ -23,6 +23,7 @@ from ..data.helpers import validate_training_cache
 DEFAULT_PARAMETERS = {
     "hidden_sizes": (8,), "omega_scale": 2 * math.pi * 45,
     "epochs": 100, "learning_rate": 1e-3, "seed": 7, "activation": "tanh",
+    "tau_e_conditioned": False,
 }
 
 
@@ -31,8 +32,11 @@ DEFAULT_PARAMETERS = {
 
 def validate_fit_settings(model_config, training_config):
     """Check all settings before creating a model or starting any fit."""
-    if set(model_config) != {"hidden_sizes", "omega_scale", "activation"}:
-        raise ValueError("model_config must specify hidden_sizes, omega_scale, and activation")
+    if set(model_config) not in ({"hidden_sizes", "omega_scale", "activation"},
+                                  {"hidden_sizes", "omega_scale", "activation", "tau_e_conditioned"}):
+        raise ValueError("model_config must specify hidden_sizes, omega_scale, activation, and optional tau_e_conditioned")
+    if not isinstance(model_config.get("tau_e_conditioned", False), bool):
+        raise ValueError("tau_e_conditioned must be a boolean")
     if set(training_config) != {"epochs", "learning_rate", "seed"}:
         raise ValueError("training_config must specify epochs, learning_rate, and seed")
     widths = model_config["hidden_sizes"]
@@ -77,11 +81,14 @@ def normalize_candidates(candidates, training_seed):
         seen.add(candidate_id)
         model_config = candidate["model_config"]
         training_config = candidate["training_config"]
-        if set(model_config) != {"hidden_sizes", "omega_scale", "activation"}:
+        if set(model_config) not in ({"hidden_sizes", "omega_scale", "activation"},
+                                      {"hidden_sizes", "omega_scale", "activation", "tau_e_conditioned"}):
             raise ValueError(f"{candidate_id}: complete model_config is required")
         if set(training_config) != {"epochs", "learning_rate"}:
             raise ValueError(f"{candidate_id}: training_config must specify epochs and learning_rate only")
         validate_fit_settings(model_config, {**training_config, "seed": training_seed})
+        if model_config.get("tau_e_conditioned", False):
+            raise ValueError("Nested cross-validation does not support tau_e_conditioned models")
         normalized.append({
             "candidate_id": candidate_id,
             "model_config": {
@@ -119,12 +126,17 @@ def validate_run_inputs(parameters, preparation, cache_source, protocol, *, trai
     """Normalize settings and reject conflicting data or protocol inputs."""
     if cache_source is not None and any(value is not None for value in preparation.values()):
         raise ValueError("cache_source cannot be combined with data preparation inputs")
-    parameters = {**parameters, "hidden_sizes": tuple(parameters["hidden_sizes"])}
+    parameters = {"tau_e_conditioned": False, **parameters,
+                  "hidden_sizes": tuple(parameters["hidden_sizes"])}
+    if not isinstance(parameters["tau_e_conditioned"], bool):
+        raise ValueError("tau_e_conditioned must be a boolean")
     if protocol is not None:
         if not isinstance(protocol, dict) or cache_source is None:
             raise ValueError("Nested experiments require a protocol dictionary and cache_source")
         if parameters != DEFAULT_PARAMETERS:
             raise ValueError("Nested model and training settings belong in protocol candidates")
+        if parameters["tau_e_conditioned"]:
+            raise ValueError("Nested cross-validation does not support tau_e_conditioned models")
         protocol = resolve_nested_protocol(protocol, training_runs_path)
         protocol["candidates"] = normalize_candidates(protocol["candidates"], protocol["training_seed"])
         validate_nested_settings(protocol)
@@ -132,7 +144,7 @@ def validate_run_inputs(parameters, preparation, cache_source, protocol, *, trai
         raise ValueError("training_runs_path requires a nested protocol")
     else:
         validate_fit_settings(
-            {key: parameters[key] for key in ("hidden_sizes", "omega_scale", "activation")},
+            {key: parameters[key] for key in ("hidden_sizes", "omega_scale", "activation", "tau_e_conditioned")},
             {key: parameters[key] for key in ("epochs", "learning_rate", "seed")},
         )
     return parameters, protocol
@@ -233,7 +245,10 @@ def resolve_nested_protocol(protocol, config_path=None):
         if entry.get("evaluation") == "nested_cross_validation":
             raise ValueError(f"Candidate must be a fixed training configuration: {run_id}")
         parameters = entry.get("parameters", {})
-        if set(parameters) != set(DEFAULT_PARAMETERS):
+        if parameters.get("tau_e_conditioned", False):
+            raise ValueError(f"Nested candidate cannot use tau_e_conditioned: {run_id}")
+        if set(parameters) not in (set(DEFAULT_PARAMETERS),
+                                   set(DEFAULT_PARAMETERS) - {"tau_e_conditioned"}):
             raise ValueError(f"Candidate {run_id} must specify exactly {tuple(DEFAULT_PARAMETERS)}")
         if parameters["seed"] != protocol["training_seed"]:
             raise ValueError(f"Candidate {run_id} seed differs from protocol training_seed")
@@ -265,8 +280,11 @@ def queue_run_arguments(experiment, directory, config_path=None):
         protocol = resolve_nested_protocol(experiment["protocol"], config_path)
         return {"cache_source": cache_source, "protocol": protocol}
     parameters = experiment["parameters"]
-    if set(parameters) != set(DEFAULT_PARAMETERS):
-        raise ValueError(f"Specify exactly {tuple(DEFAULT_PARAMETERS)} for {directory.name}")
+    legacy_keys = set(DEFAULT_PARAMETERS) - {"tau_e_conditioned"}
+    if set(parameters) not in (legacy_keys, set(DEFAULT_PARAMETERS)):
+        raise ValueError(f"Specify exactly {tuple(DEFAULT_PARAMETERS)} (tau_e_conditioned may be omitted for legacy entries) for {directory.name}")
+    if not isinstance(parameters.get("tau_e_conditioned", False), bool):
+        raise ValueError("tau_e_conditioned must be a boolean")
     return parameters
 
 
@@ -495,7 +513,8 @@ def source_hashes(repo):
 
 
 def create_run_record(repo, *, hidden_sizes, omega_scale,
-                      activation, epochs, learning_rate, seed):
+                      activation, epochs, learning_rate, seed,
+                      tau_e_conditioned=False):
     """Capture settings and provenance for a new fixed-configuration LOOCV run."""
     repo = Path(repo).resolve()
     record = {
@@ -507,7 +526,8 @@ def create_run_record(repo, *, hidden_sizes, omega_scale,
         "checkpoint_dir": "checkpoints",
         "model_config": {"hidden_sizes": list(hidden_sizes),
                          "omega_scale": float(omega_scale),
-                         "activation": activation},
+                         "activation": activation,
+                         "tau_e_conditioned": tau_e_conditioned},
         "training_config": {"epochs": epochs, "learning_rate": learning_rate,
                             "seed": seed, "optimizer": "Adam",
                             "device": "cpu", "dtype": "float64"},
@@ -559,9 +579,11 @@ def completed_run_matches(directory, arguments):
                 or config.get("status") != "complete"
                 or not (directory / config.get("results_path", "results.pt")).is_file()):
             raise RuntimeError(f"Existing run is incomplete; inspect it or choose a new directory: {directory}")
-        model = {"activation": "tanh", **config.get("model_config", {})}
+        model = {"activation": "tanh", "tau_e_conditioned": False,
+                 **config.get("model_config", {})}
         saved = {**model, **config.get("training_config", {})}
-        if any(saved.get(key) != value for key, value in arguments.items()):
+        expected = {"tau_e_conditioned": False, **arguments}
+        if any(saved.get(key) != value for key, value in expected.items()):
             raise ValueError(f"Completed run settings differ from the queue: {directory}")
         from ..analysis.helpers import load_loocv_run
         load_loocv_run(directory, config)

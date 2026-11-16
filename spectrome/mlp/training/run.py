@@ -24,13 +24,15 @@ def run_experiment(run_dir=None, *, data_dir=None, hidden_sizes=HIDDEN_SIZES,
                    omega_scale=OMEGA_SCALE, epochs=EPOCHS,
                    learning_rate=LEARNING_RATE, seed=SEED,
                    subjects=None, frequencies_hz=None, preprocessing_id=None,
-                   activation="tanh", cache_source=None, protocol=None,
+                   activation="tanh", tau_e_conditioned=False,
+                   cache_source=None, protocol=None,
                    training_runs_path=None):
     """Prepare data, run the requested CV procedure, and analyze its outputs."""
     # Validate settings before creating the output folder.
     parameters = {
         "hidden_sizes": hidden_sizes, "omega_scale": omega_scale,
         "epochs": epochs, "learning_rate": learning_rate, "seed": seed, "activation": activation,
+        "tau_e_conditioned": tau_e_conditioned,
     }
     preparation = {
         "data_dir": data_dir, "subjects": subjects,

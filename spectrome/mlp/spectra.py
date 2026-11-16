@@ -92,11 +92,13 @@ def evaluate_filter(model, subjects, omega):
     if not subjects:
         raise ValueError("subjects must not be empty")
     model.eval()
-    filters = model(omega)
-    if not torch.isfinite(filters.real).all() or not torch.isfinite(filters.imag).all():
-        raise ValueError("evaluate_filter received a nonfinite graph filter")
+    shared_filters = None if model.tau_e_conditioned else model(omega)
     records = []
     for subject in subjects:
+        filters = (model(omega, subject["parameters"].get("tau_e"))
+                   if model.tau_e_conditioned else shared_filters)
+        if not torch.isfinite(filters.real).all() or not torch.isfinite(filters.imag).all():
+            raise ValueError("evaluate_filter received a nonfinite graph filter")
         analytical = predict_spectra(subject)
         learned = predict_spectra(subject, filters)
         analytical_score = spectral_correlation(

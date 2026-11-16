@@ -1,6 +1,10 @@
 # Shared graph-filter MLP
 
-The MLP maps normalized angular frequency to one shared complex graph filter.
+By default the MLP maps normalized angular frequency to one shared complex
+graph filter. Fixed LOOCV runs can set `tau_e_conditioned: true` to also
+supply each subject's fixed `tau_e`, scaled by 0.01 seconds, at every
+frequency. All subjects in a fold use the same learned weights. The
+resulting graph filter depends on the subject's supplied `tau_e`.
 The analytical local filter and seven fitted SGM parameters remain fixed.
 The SGM equations live in `spectrome/forward/`.
 
@@ -23,7 +27,8 @@ mlp/
   analysis/
     analysis.py                score tables and reports
     plots.py                   spectra, filters, and training curves
-    statistics.py              paired statistical comparisons
+    statistics.py              paired tests and Bonferroni correction
+    loocv_statistics.py        saved-run ranking and baseline snapshots
     helpers.py                 loading, verification, and shared utilities
 ```
 
@@ -84,7 +89,9 @@ input validation, cache IO, logs, saved status, and completed-run checks. It ref
 in `training/helpers.py` only builds metadata; it does not train a model.
 
 `run_experiments()` is the batch entry point. It reads
-`training/training_runs.json`, which retains the 16 existing configurations:
+`training/training_runs.json`, which lists the fixed LOOCV configurations. Runs 16 and 17 add wider and deeper
+variants of Run 13, respectively. Runs 18 and 19 test shallower and narrower
+variants with the same training settings:
 
 ```bash
 python -m spectrome.mlp.training.run
@@ -92,6 +99,13 @@ python -m spectrome.mlp.training.run
 
 This command skips complete matching runs and starts missing runs. Importing
 the package does not start the queue.
+
+The eight `basic_mlp_*_tau_e` entries match the frequency-only configurations
+with the highest saved mean held-out correlations (18, 19, 13, 12, 15, 16,
+14, and 17, in rank order). The suffix identifies the conditioned run.
+Pair each subject's held-out score with its score from the corresponding
+frequency-only run. Because the ranking used this cohort, the comparison is
+exploratory.
 
 For the agreed five-by-five nested evaluation, use the explicit command:
 
@@ -230,6 +244,37 @@ Each subject contributes its mean regional r, transformed with Fisher's
 `atanh`, to a two-sided paired t-test. Pairs are matched by subject ID. These
 retrospective tests are exploratory: configuration choices used this cohort,
 and cross-validation training sets overlap.
+
+### LOOCV ranking and baseline comparisons
+
+From the repository root, generate the descriptive ranking and the dated
+16-model comparison using the saved runs:
+
+```bash
+python -m spectrome.mlp.analysis.loocv_statistics ranking
+python -m spectrome.mlp.analysis.loocv_statistics snapshot --snapshot-id 2026-11-14-runs-0-15
+```
+
+Both commands default to `basic_mlp_0` through `basic_mlp_15`. Use
+`--run-ids RUN [RUN ...]` to declare a different set of completed runs and
+`--reference-run RUN` if the list omits the default reference, `basic_mlp_1`.
+The reference supplies the common analytical scores. The analysis validates
+the saved cache and replays the checkpoints. A historical cache with an older
+forward-source hash must match the reference cache exactly in all other fields
+and pass the same checkpoint replay.
+
+The outputs are under `results/analysis/loocv-vs-analytical/`. The ranking
+command refreshes `ranking.csv` with subject-level means, sample SDs, paired
+gains and improvement counts. Each snapshot stores `comparisons.csv` and
+`family.json` in its own folder. The family is one two-sided paired Fisher-z
+test per listed MLP against the analytical filter, with Bonferroni applied
+across those tests. The 95% Fisher-z intervals are unadjusted. Use a new
+snapshot ID if the run list or saved evidence changes. Updating the ranking
+leaves existing snapshots available to reproduce reports.
+
+`statistics.py` defines the paired test and correction. `loocv_statistics.py`
+selects the saved runs and exports the results. The packet builder in
+`artifacts/results_packet/` formats one finished snapshot for reading.
 
 ## Checks
 
