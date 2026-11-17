@@ -1,0 +1,182 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+\usetheme{default}
+\usecolortheme{dove}
+\usepackage{amsmath,amssymb,graphicx,tikz,pgfplots,booktabs}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\pgfplotsset{compat=1.18}
+\definecolor{DeckNavy}{HTML}{17324D}
+\definecolor{DeckBlue}{HTML}{2D70B3}
+\definecolor{DeckGreen}{HTML}{6F9940}
+\definecolor{DeckRed}{HTML}{D95F4A}
+\definecolor{DeckGold}{HTML}{D4A72C}
+\definecolor{DeckGray}{HTML}{65727E}
+\definecolor{DeckLight}{HTML}{F2F5F7}
+\setbeamercolor{normal text}{fg=DeckNavy,bg=white}
+\setbeamercolor{frametitle}{fg=DeckNavy,bg=white}
+\setbeamercolor{title}{fg=DeckNavy}
+\setbeamercolor{structure}{fg=DeckBlue}
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{frametitle}{\vspace{0.25em}\hspace{0.15em}\insertframetitle\par
+  \vspace{-0.35em}\hspace{0.15em}{\color{DeckGreen}\rule{1.3cm}{1.5pt}}}
+\setbeamertemplate{footline}{\hfill\color{DeckGray}\scriptsize\insertframenumber\hspace{0.5cm}\vspace{0.2cm}}
+\setbeamersize{text margin left=0.65cm,text margin right=0.65cm}
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\hypersetup{pdftitle={SGM Graph Filter},pdfauthor={Harshil Shah},pdfsubject={Larger MLPs, Statistical Analysis, and Tau Conditioning}}
+\newenvironment{canvas}{\begin{tikzpicture}[remember picture,overlay,shift={(current page.north west)},x=1cm,y=-1cm]}{\end{tikzpicture}}
+\tikzset{txt/.style={anchor=north west,align=left,inner sep=0,text=DeckNavy},
+  smalltxt/.style={txt,font=\small},
+  labeltxt/.style={txt,font=\scriptsize,text=DeckGray},
+  arr/.style={-{Latex[length=2mm]},thick,DeckGreen}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\callout}[1]{\node[txt,fill=DeckNavy,text=white,rounded corners=2pt,
+  inner sep=0.19cm,text width=13.8cm,align=center,font=\small\bfseries] at (0.9,7.20) {#1};}
+\newcommand{\source}[1]{\node[labeltxt,text width=14.5cm,font=\tiny] at (0.75,8.12) {#1};}
+\pgfplotsset{deckaxis/.style={axis lines=left,axis line style={DeckGray},
+  tick label style={font=\scriptsize,text=DeckGray},label style={font=\small,text=DeckNavy},
+  title style={font=\small\bfseries,text=DeckNavy},
+  grid=major,grid style={DeckGray!14},tick style={DeckGray},
+  legend style={draw=none,font=\scriptsize,fill=none},clip=true}}
+
+
+
+\usepackage{listings}
+\lstset{language=Python,basicstyle=\ttfamily\fontsize{9}{11}\selectfont,
+ keywordstyle=\color{DeckBlue},commentstyle=\color{DeckGray},stringstyle=\color{DeckGreen},
+ columns=fullflexible,keepspaces=true,showstringspaces=false,breaklines=true,
+ aboveskip=0pt,belowskip=0pt}
+\newcommand{\stepcontent}[4]{
+\node[txt,font=\large\bfseries,text width=14cm] at (0.85,1.55) {#1};
+\node[smalltxt,text width=6.15cm] at (0.85,2.45) {#2};
+\node[txt,text width=7.25cm] at (7.75,3.2) {\begin{minipage}{7.25cm}\hyphenpenalty=0\exhyphenpenalty=0\lstinputlisting[linewidth=7.25cm]{snippets/#3.py}\end{minipage}};
+\node[labeltxt,text width=7.25cm] at (7.75,2.35) {#4};}
+\newcommand{\evalcontent}[4]{
+\node[txt,font=\large\bfseries,text width=14cm] at (0.85,1.55) {#1};
+\node[smalltxt,text width=4.7cm] at (0.85,2.45) {#2};
+\node[txt,text width=9cm] at (6.25,3.15) {\begin{minipage}{9cm}\hyphenpenalty=0\exhyphenpenalty=0\lstinputlisting[linewidth=9cm,basicstyle=\ttfamily\fontsize{8.5}{10}\selectfont]{snippets/#3.py}\end{minipage}};
+\node[labeltxt,text width=9cm] at (6.25,2.35) {#4};}
+\begin{document}
+\begin{frame}[plain,noframenumbering]
+\begin{canvas}
+\node[txt,font=\LARGE\bfseries,text width=13.7cm] at (0.9,2.05) {SGM Graph Filter};
+\draw[DeckGreen,line width=1.5pt] (0.9,3.7) -- (2.4,3.7);
+\node[txt,font=\large,text width=14cm] at (0.9,4.18) {Larger MLPs, Statistical Analysis, and $\tau_e$ Conditioning};
+\node[smalltxt] at (0.9,5.45) {Harshil Shah\\[0.18cm]Mission San Jose High School\\[0.18cm]November 16, 2026};
+\end{canvas}
+\end{frame}
+\begin{frame}[t]{Summary}
+\begin{itemize}
+\item \textbf{Frequency-only MLPs.} Tested wider, deeper, shallower, and narrower architectures.
+\item \textbf{Optimizer and training stability.} Reviewed full-batch Adam and examined how training spikes changed at a lower learning rate.
+\item \textbf{Paired analysis.} Compared 20 frequency-only MLPs with the analytical filter and applied Bonferroni correction.
+\item \textbf{$\tau_e$ conditioning.} Added one fixed subject feature and launched eight matched LOOCV runs.
+\end{itemize}
+\end{frame}
+
+\begin{frame}[t]{MLP Configurations}
+\vspace{0.15cm}\begin{columns}[T,onlytextwidth]\column{0.5\textwidth}\centering\scriptsize\setlength{\tabcolsep}{2.2pt}
+\begin{tabular}{rllrrl}\toprule
+Run & Width & Act. & Epochs & LR & Mean $r\pm$ SD\\\midrule
+0 & 8 & Tanh & 100 & 0.001 & 0.8163 $\pm$ 0.0624\\
+1 & 8 & Sigmoid & 100 & 0.001 & 0.8170 $\pm$ 0.0600\\
+2 & 8 & Tanh & 500 & 0.001 & 0.8511 $\pm$ 0.0436\\
+3 & 8 & Sigmoid & 500 & 0.001 & 0.8355 $\pm$ 0.0469\\
+4 & 32 & Tanh & 100 & 0.001 & 0.8377 $\pm$ 0.0452\\
+5 & 32 & Sigmoid & 100 & 0.001 & 0.8280 $\pm$ 0.0559\\
+6 & 32 & Tanh & 500 & 0.001 & 0.8562 $\pm$ 0.0423\\
+7 & 32 & Sigmoid & 500 & 0.001 & 0.8303 $\pm$ 0.0540\\
+8 & $2\times32$ & Tanh & 100 & 0.001 & 0.8371 $\pm$ 0.0488\\
+9 & $2\times32$ & Sigmoid & 100 & 0.001 & 0.8276 $\pm$ 0.0539\\\bottomrule\end{tabular}\column{0.5\textwidth}\centering\scriptsize\setlength{\tabcolsep}{2.2pt}
+\begin{tabular}{rllrrl}\toprule
+Run & Width & Act. & Epochs & LR & Mean $r\pm$ SD\\\midrule
+10 & $2\times32$ & Tanh & 500 & 0.001 & 0.8511 $\pm$ 0.0442\\
+11 & $2\times32$ & Sigmoid & 500 & 0.001 & 0.8377 $\pm$ 0.0470\\
+12 & $5\times128$ & Tanh & 5,000 & 0.001 & 0.8605 $\pm$ 0.0430\\
+13 & $5\times128$ & Tanh & 5,000 & 0.0003 & 0.8620 $\pm$ 0.0391\\
+14 & 32 & Tanh & 5,000 & 0.0003 & 0.8577 $\pm$ 0.0423\\
+15 & $2\times32$ & Tanh & 5,000 & 0.0003 & 0.8599 $\pm$ 0.0422\\
+\textbf{16} & \textbf{$5\times256$} & \textbf{Tanh} & \textbf{5,000} & \textbf{0.0003} & \textbf{0.8593 $\pm$ 0.0488}\\
+\textbf{17} & \textbf{$7\times128$} & \textbf{Tanh} & \textbf{5,000} & \textbf{0.0003} & \textbf{0.8573 $\pm$ 0.0478}\\
+\textbf{18} & \textbf{$3\times128$} & \textbf{Tanh} & \textbf{5,000} & \textbf{0.0003} & \textbf{0.8626 $\pm$ 0.0399}\\
+\textbf{19} & \textbf{$5\times64$} & \textbf{Tanh} & \textbf{5,000} & \textbf{0.0003} & \textbf{0.8624 $\pm$ 0.0396}\\\bottomrule\end{tabular}\end{columns}\vspace{0.35cm}\small Analytical baseline: $0.8524\pm0.0374$.
+\end{frame}
+
+\begin{frame}[t]{Paired Comparisons}
+\begin{itemize}
+\item Pair each MLP score with the analytical score from the same subject ($n=36$).
+\item Apply a two-sided paired $t$-test to Fisher-$z$ differences. Apply Bonferroni correction across all 20 frequency-only comparisons.
+\item Five runs had higher scores and adjusted $p<0.05$. Four had lower scores and adjusted $p<0.05$.
+\end{itemize}\vspace{0.15cm}\centering\footnotesize
+\begin{tabular}{rrrr}\toprule
+Run & Mean $\Delta r$ & Raw $p$ & Adjusted $p$\\\midrule
+12 & +0.00812 & 0.00197 & 0.0394\\
+13 & +0.00962 & 0.000119 & 0.00238\\
+15 & +0.00747 & 0.00102 & 0.0204\\
+18 & +0.01017 & 2.86e-05 & 0.000573\\
+19 & +0.01003 & 3.14e-05 & 0.000627\\\bottomrule\end{tabular}
+\end{frame}
+
+\begin{frame}[t,fragile]{$\tau_e$-conditioned MLP}
+
+\begin{columns}[T,onlytextwidth]
+\column{0.40\textwidth}
+\only<1>{\textbf{1. Add a second input.}\par\medskip Frequency is normalized as before. The subject's fixed $\tau_e$ is divided by 0.01 seconds and repeated across frequencies.}
+\only<2>{\textbf{2. Pass the subject's value.}\par\medskip Each fold fits one shared MLP. Training and evaluation supply the corresponding subject's $\tau_e$.}
+\column{0.57\textwidth}
+\begin{onlyenv}<1>
+\textcolor{DeckGray}{\small model.py}
+\begin{lstlisting}[breaklines=true,breakatwhitespace=false,basicstyle=\ttfamily\footnotesize,linewidth=\linewidth]
+layers, width = [], (2 if tau_e_conditioned else 1)
+
+normalized_omega = omega / self.omega_scale
+tau_feature = (tau_e.reshape(()) / 0.01).expand_as(
+    normalized_omega
+)
+inputs = torch.stack(
+    (normalized_omega, tau_feature), dim=-1
+)
+\end{lstlisting}
+\end{onlyenv}
+\begin{onlyenv}<2>
+\textcolor{DeckGray}{\small training.py}
+\begin{lstlisting}[breaklines=true,breakatwhitespace=false,basicstyle=\ttfamily\footnotesize,linewidth=\linewidth]
+if model.tau_e_conditioned:
+    train_scores = torch.stack([
+        subject_correlation(
+            subject,
+            model(omega, subject["parameters"].get(
+                "tau_e"
+            )),
+        )
+        for subject in training_subjects
+    ])
+\end{lstlisting}
+\end{onlyenv}
+\end{columns}
+
+\end{frame}
+
+\begin{frame}[t]{$\tau_e$-conditioned LOOCV --- Ongoing results}
+\centering\small
+\begin{tabular}{rrrrrr}\toprule
+Run & Frequency only & With $\tau_e$ & Mean $\Delta r$ & SD of $\Delta r$ & Improved\\\midrule
+18 & 0.86256 & 0.86623 & +0.00367 & 0.01544 & 16/36\\
+19 & 0.86243 & 0.86729 & +0.00486 & 0.01474 & 25/36\\
+13 & 0.86201 & 0.86698 & +0.00497 & 0.01533 & 20/36\\
+12 & 0.86052 & 0.86469 & +0.00418 & 0.01289 & 24/36\\
+15 & 0.85987 & 0.86312 & +0.00326 & 0.01351 & 15/36\\
+16 & 0.85930 & Pending & -- & -- & --\\
+14 & 0.85767 & Pending & -- & -- & --\\
+17 & 0.85727 & Pending & -- & -- & --\\\bottomrule\end{tabular}\par\vspace{0.25cm}\small 5 of 8 runs complete as of 4:12 PM Pacific on November 16. Each row compares the same 36 subjects and matched training settings.
+\end{frame}
+
+\begin{frame}[t]{Discussion}
+\begin{itemize}
+\item \textbf{Training spikes.} Our current understanding is that the learning rate may contribute. We observed fewer and smaller spikes at a lower learning rate. We are still unsure whether the spikes reflect the optimization problem itself, gradient instability, or another cause.
+\item \textbf{Optimizer.} We use full-batch Adam. Mini-batch Adam could introduce stochasticity by using a subset of training subjects for each update.
+\item \textbf{Practical significance.} Once mean held-out $r$ is around $0.86$, adding $\tau_e$ has changed it only slightly in the runs completed so far. How large a gain is actually worthwhile?
+\end{itemize}
+\end{frame}
+\end{document}

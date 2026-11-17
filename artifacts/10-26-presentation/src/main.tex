@@ -1,0 +1,401 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+\usetheme{default}
+\usecolortheme{dove}
+\usepackage{amsmath,amssymb,graphicx,tikz,pgfplots,booktabs}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\pgfplotsset{compat=1.18}
+\definecolor{DeckNavy}{HTML}{17324D}
+\definecolor{DeckBlue}{HTML}{2D70B3}
+\definecolor{DeckGreen}{HTML}{6F9940}
+\definecolor{DeckRed}{HTML}{D95F4A}
+\definecolor{DeckGold}{HTML}{D4A72C}
+\definecolor{DeckGray}{HTML}{65727E}
+\definecolor{DeckLight}{HTML}{F2F5F7}
+\setbeamercolor{normal text}{fg=DeckNavy,bg=white}
+\setbeamercolor{frametitle}{fg=DeckNavy,bg=white}
+\setbeamercolor{title}{fg=DeckNavy}
+\setbeamercolor{structure}{fg=DeckBlue}
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{frametitle}{\vspace{0.25em}\hspace{0.15em}\insertframetitle\par
+  \vspace{-0.35em}\hspace{0.15em}{\color{DeckGreen}\rule{1.3cm}{1.5pt}}}
+\setbeamertemplate{footline}{\hfill\color{DeckGray}\scriptsize\insertframenumber\hspace{0.5cm}\vspace{0.2cm}}
+\setbeamersize{text margin left=0.65cm,text margin right=0.65cm}
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\hypersetup{pdftitle={SGM Graph Filter},pdfauthor={Harshil Shah},pdfsubject={MLP Implementation, Results, and Nested Cross-Validation}}
+\newenvironment{canvas}{\begin{tikzpicture}[remember picture,overlay,shift={(current page.north west)},x=1cm,y=-1cm]}{\end{tikzpicture}}
+\tikzset{txt/.style={anchor=north west,align=left,inner sep=0,text=DeckNavy},
+  smalltxt/.style={txt,font=\small},
+  labeltxt/.style={txt,font=\scriptsize,text=DeckGray},
+  arr/.style={-{Latex[length=2mm]},thick,DeckGreen}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\callout}[1]{\node[txt,fill=DeckNavy,text=white,rounded corners=2pt,
+  inner sep=0.19cm,text width=13.8cm,align=center,font=\small\bfseries] at (0.9,7.20) {#1};}
+\newcommand{\source}[1]{\node[labeltxt,text width=14.5cm,font=\tiny] at (0.75,8.12) {#1};}
+\pgfplotsset{deckaxis/.style={axis lines=left,axis line style={DeckGray},
+  tick label style={font=\scriptsize,text=DeckGray},label style={font=\small,text=DeckNavy},
+  title style={font=\small\bfseries,text=DeckNavy},
+  grid=major,grid style={DeckGray!14},tick style={DeckGray},
+  legend style={draw=none,font=\scriptsize,fill=none},clip=true}}
+
+
+
+\usepackage{listings}
+\lstset{language=Python,basicstyle=\ttfamily\fontsize{9}{11}\selectfont,
+ keywordstyle=\color{DeckBlue},commentstyle=\color{DeckGray},stringstyle=\color{DeckGreen},
+ columns=fullflexible,keepspaces=true,showstringspaces=false,breaklines=true,
+ aboveskip=0pt,belowskip=0pt}
+\newcommand{\stepcontent}[4]{
+\node[txt,font=\large\bfseries,text width=14cm] at (0.85,1.55) {#1};
+\node[smalltxt,text width=6.15cm] at (0.85,2.45) {#2};
+\node[txt,text width=7.25cm] at (7.75,3.2) {\begin{minipage}{7.25cm}\hyphenpenalty=0\exhyphenpenalty=0\lstinputlisting[linewidth=7.25cm]{snippets/#3.py}\end{minipage}};
+\node[labeltxt,text width=7.25cm] at (7.75,2.35) {#4};}
+\newcommand{\evalcontent}[4]{
+\node[txt,font=\large\bfseries,text width=14cm] at (0.85,1.55) {#1};
+\node[smalltxt,text width=4.7cm] at (0.85,2.45) {#2};
+\node[txt,text width=9cm] at (6.25,3.15) {\begin{minipage}{9cm}\hyphenpenalty=0\exhyphenpenalty=0\lstinputlisting[linewidth=9cm,basicstyle=\ttfamily\fontsize{8.5}{10}\selectfont]{snippets/#3.py}\end{minipage}};
+\node[labeltxt,text width=9cm] at (6.25,2.35) {#4};}
+\begin{document}
+\begin{frame}[plain,noframenumbering]
+\begin{canvas}
+\node[txt,font=\LARGE\bfseries,text width=13.7cm] at (0.9,2.05) {SGM Graph Filter};
+\draw[DeckGreen,line width=1.5pt] (0.9,3.7) -- (2.4,3.7);
+\node[txt,font=\large,text width=14cm] at (0.9,4.18) {MLP Implementation, Results, and Nested Cross-Validation};
+\node[smalltxt] at (0.9,5.45) {Harshil Shah\\[0.18cm]Mission San Jose High School\\[0.18cm]October 26, 2026};
+\end{canvas}
+\end{frame}
+
+\begin{frame}[t]{Code overview}
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.65) {\code{spectrome/mlp/}\\[0.45cm]
+\renewcommand{\arraystretch}{1.55}\begin{tabular}{@{}p{6.6cm}p{6.5cm}@{}}
+\code{data/data.py} & Fixed subject inputs\\
+\code{model.py} & Frequency to complex filter\\
+\code{spectra.py} & Prediction and correlation\\
+\code{training/training.py} & MLP fitting\\
+\code{training/loocv.py} & Leave-one-subject-out evaluation\\
+\code{training/nested_cv.py} & Inner selection and outer evaluation\\
+\code{training/run.py} & Experiment execution\\
+\code{analysis/} & Tables, figures, and statistics
+\end{tabular}};
+\end{canvas}\end{frame}
+
+
+\begin{frame}[t]{MLP Implementation}
+\begin{canvas}
+\only<1>{\stepcontent{1) Compute inputs offline}{For each subject and frequency, we compute the delayed graph and its eigenmodes once, then save them for training.\\[0.4cm]We use 36 subjects and 40 frequencies from 2--45 Hz. The graph has 86 nodes, with 68 cortical regions used for evaluation.}{graphs}{\code{mlp/data/data.py}\\[0.12cm]\code{generate_training_data}}}
+\only<2>{\stepcontent{2) Build the MLP}{\textbf{Input:} normalized frequency, $f/45$.\\[0.35cm]\textbf{Output:} two real values, $a$ and $b$, which form the complex filter $a+bi$.\\[0.35cm]\textbf{Hyperparameters:} number of hidden layers, units per layer, and activation (Tanh or Sigmoid).\\[0.35cm]We vary these settings across experiments and learn only the MLP weights.}{layers}{\code{mlp/model.py}\\[0.12cm]\code{FeGraphMLP.__init__}}}
+\only<3>{\stepcontent{3) Predict the complex filter}{We scale frequency before passing it into the MLP:\\[0.25cm]$x=\dfrac{\omega}{2\pi\cdot45}=\dfrac{f}{45}$.\\[0.35cm]The two outputs give the real and imaginary parts:\\[0.25cm]$F_\theta(\omega)=a_\theta(x)+i b_\theta(x)$.\\[0.35cm]Within each fold, we use the same filter for every subject. Frequency is the only input.}{input}{\code{mlp/model.py}\\[0.12cm]\code{FeGraphMLP.forward}}}
+\only<4>{\stepcontent{4) Pass the filter into the SGM}{We pass $a+bi$ as \code{Fe_graph}, replacing $F_e$ only in graph propagation.\\[0.4cm]The SGM code handles the denominator safeguard, combines the graph modes, and selects the cortical regions.\\[0.4cm]This gives 68 regional spectra at 40 frequencies. The local response and fitted SGM parameters stay fixed.}{downstream}{\code{mlp/spectra.py}\\[0.12cm]\code{predict_spectra}}}
+\end{canvas}
+\note{Code excerpts follow the current repository. Line wrapping and explicitly marked omissions are for readability.}
+\end{frame}
+
+\begin{frame}[t]{LOOCV --- Training and Evaluation}
+\begin{canvas}
+\only<1>{\stepcontent{1) Leave one subject out}{One \textbf{fold} is one train-and-test round.\\[0.3cm]\textbf{Fold 1:} train on subjects 2--36; test on subject 1.\\[0.3cm]\textbf{Fold 2:} start again, train on everyone except subject 2; test on subject 2.\\[0.3cm]Repeat until every subject has been held out once. Each round starts with fresh weights and a fresh optimizer, using seed 7.}{init}{\code{mlp/training/training.py}\\[0.12cm]\code{train_filter}}}
+\only<2>{\stepcontent{2) Prepare spectra for comparison}{Within a fold, we compare each training subject\textquotesingle s predicted spectrum with their measured MEG spectrum.\\[0.3cm]Before calculating correlation, we process both in the same way:\\[0.2cm]1. Take the magnitude.\\[0.12cm]2. Smooth across neighboring frequencies.\\[0.12cm]3. Take the square root.\\[0.12cm]4. Subtract the mean across frequencies.}{transform}{\code{mlp/spectra.py}\\[0.12cm]\code{transform_spectra}}}
+\only<3>{\stepcontent{3) Calculate the loss}{We calculate correlation across frequency for each region, then average the 68 regions:\\[0.3cm]$r_s=\dfrac1{68}\displaystyle\sum_{r=1}^{68}\mathrm{corr}_f(\widehat x_{s,r},y_{s,r})$.\\[0.35cm]The loss averages the 35 training subjects:\\[0.3cm]$\mathcal L=1-\dfrac1{35}\displaystyle\sum_{s\in\mathrm{train}}r_s$.\\[0.35cm]The held-out subject does not enter this loss.}{loss}{\code{mlp/training/training.py}\\[0.12cm]\code{train_filter}}}
+\only<4>{\stepcontent{4) Update the MLP weights}{Each epoch makes one Adam update using all 35 training subjects. We record the loss before that update.\\[0.4cm]We run for a fixed 100, 500, or 5,000 epochs.\\[0.4cm]The initial learning rate is $10^{-3}$; runs 13--15 use $3\times10^{-4}$.}{update}{\code{mlp/training/training.py}\\[0.12cm]\code{train_filter}}}
+\only<5>{\evalcontent{5) Evaluate the held-out subject --- Set up evaluation}{For each LOOCV fold, \code{evaluate_filter} receives the fitted model and one held-out subject.\\[0.35cm]\code{torch.no_grad} disables gradient recording; \code{model.eval()} sets evaluation mode.\\[0.35cm]Compute the complex filter and check that its values are finite.}{evaluate_setup}{\code{mlp/spectra.py}\\[0.12cm]\code{evaluate_filter} (1/3)}}
+\only<6>{\evalcontent{5) Evaluate the held-out subject --- Predict and score}{Predict the subject\textquotesingle s spectra with the analytical and learned graph filters.\\[0.35cm]\code{spectral_correlation} transforms the spectra and averages regional correlations.\\[0.35cm]Score both predictions against the measured MEG target.}{evaluate_scores}{\code{mlp/spectra.py}\\[0.12cm]\code{evaluate_filter} (2/3)}}
+\only<7>{\evalcontent{5) Evaluate the held-out subject --- Return the results}{Return the subject ID, predictions, filter, scores, and learned-minus-analytical difference.\\[0.35cm]After 36 folds, each subject has one held-out score. Average those scores to summarize performance.}{evaluate_records}{\code{mlp/spectra.py}\\[0.12cm]\code{evaluate_filter} (3/3)}}
+\end{canvas}
+\note{Code excerpts follow the current repository. Line wrapping and explicitly marked omissions are for readability.}
+\end{frame}
+
+\begin{frame}[t]{Experiments}\begin{canvas}\node[txt,text width=14cm,align=center] at (0.85,1.55) {\footnotesize\renewcommand{\arraystretch}{1.04}\begin{tabular}{r l l r r l}\toprule Run & Hidden layers & Activation & Epochs & Learning rate & Status\\\midrule0 & [8] & Tanh & 100 & 0.001 & Complete \\
+1 & [8] & Sigmoid & 100 & 0.001 & Complete \\
+2 & [8] & Tanh & 500 & 0.001 & Complete \\
+3 & [8] & Sigmoid & 500 & 0.001 & Complete \\
+4 & [32] & Tanh & 100 & 0.001 & Complete \\
+5 & [32] & Sigmoid & 100 & 0.001 & Complete \\
+6 & [32] & Tanh & 500 & 0.001 & Complete \\
+7 & [32] & Sigmoid & 500 & 0.001 & Complete \\
+8 & [32, 32] & Tanh & 100 & 0.001 & Complete \\
+9 & [32, 32] & Sigmoid & 100 & 0.001 & Complete \\
+10 & [32, 32] & Tanh & 500 & 0.001 & Complete \\
+11 & [32, 32] & Sigmoid & 500 & 0.001 & Complete \\\bottomrule\end{tabular}};\node[labeltxt,text width=14cm,align=center] at (0.85,7.65) {};\end{canvas}\end{frame}
+
+\begin{frame}[t]{Experiments}\begin{canvas}\node[txt,text width=14cm,align=center] at (0.85,1.55) {\footnotesize\renewcommand{\arraystretch}{1.04}\begin{tabular}{r l l r r l}\toprule Run & Hidden layers & Activation & Epochs & Learning rate & Status\\\midrule12 & $5\times128$ & Tanh & 5,000 & 0.001 & Complete \\
+13 & $5\times128$ & Tanh & 5,000 & 0.0003 & Complete \\
+14 & [32] & Tanh & 5,000 & 0.0003 & Complete \\
+15 & [32, 32] & Tanh & 5,000 & 0.0003 & Complete \\\bottomrule\end{tabular}};\node[labeltxt,text width=14cm,align=center] at (0.85,7.65) {Runs 12 and 13 differ only in learning rate. Runs 13--15 use 5,000 epochs and learning rate $3\times10^{-4}$.};\end{canvas}\end{frame}
+
+\begin{frame}[t]{LOOCV --- Performance}\begin{canvas}\node[txt,text width=14cm,align=center] at (0.85,1.55) {\fontsize{9}{10}\selectfont\renewcommand{\arraystretch}{0.78}\begin{tabular}{r r r r}\toprule Run & Mean held-out $r$ & $\Delta r$ vs. analytical & Subjects improved\\\midrule Analytical & 0.8524 & --- & ---\\\midrule0 & 0.8163 & -0.0361 & 4/36\\
+1 & 0.8170 & -0.0354 & 4/36\\
+2 & 0.8511 & -0.0013 & 20/36\\
+3 & 0.8355 & -0.0169 & 16/36\\
+4 & 0.8377 & -0.0147 & 16/36\\
+5 & 0.8280 & -0.0244 & 15/36\\
+6 & 0.8562 & +0.0038 & 25/36\\
+7 & 0.8303 & -0.0221 & 15/36\\
+8 & 0.8371 & -0.0153 & 16/36\\
+9 & 0.8276 & -0.0247 & 15/36\\
+10 & 0.8511 & -0.0013 & 20/36\\
+11 & 0.8377 & -0.0147 & 16/36\\
+12 & 0.8605 & +0.0081 & 27/36\\
+13 & 0.8620 & +0.0096 & 31/36\\
+14 & 0.8577 & +0.0053 & 26/36\\
+15 & 0.8599 & +0.0075 & 29/36\\\bottomrule\end{tabular}};\node[labeltxt,text width=14cm,align=center] at (0.85,8.1) {Exploratory single-seed comparisons; selecting a winner from these scores is model selection.};\end{canvas}\end{frame}
+
+\begin{frame}[t]{Run 0 --- [8] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {100 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_0_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_0_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8163}\qquad $\Delta r$: -0.0361\qquad Improved: 4/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_0. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 1 --- [8] Sigmoid}\begin{canvas}\node[smalltxt] at (0.85,1.55) {100 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_1_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_1_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8170}\qquad $\Delta r$: -0.0354\qquad Improved: 4/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_1. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 2 --- [8] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {500 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_2_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_2_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8511}\qquad $\Delta r$: -0.0013\qquad Improved: 20/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_2. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 3 --- [8] Sigmoid}\begin{canvas}\node[smalltxt] at (0.85,1.55) {500 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_3_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_3_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8355}\qquad $\Delta r$: -0.0169\qquad Improved: 16/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_3. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 4 --- [32] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {100 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_4_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_4_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8377}\qquad $\Delta r$: -0.0147\qquad Improved: 16/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_4. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 5 --- [32] Sigmoid}\begin{canvas}\node[smalltxt] at (0.85,1.55) {100 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_5_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_5_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8280}\qquad $\Delta r$: -0.0244\qquad Improved: 15/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_5. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 6 --- [32] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {500 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_6_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_6_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8562}\qquad $\Delta r$: +0.0038\qquad Improved: 25/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_6. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 7 --- [32] Sigmoid}\begin{canvas}\node[smalltxt] at (0.85,1.55) {500 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_7_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_7_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8303}\qquad $\Delta r$: -0.0221\qquad Improved: 15/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_7. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 8 --- [32, 32] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {100 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_8_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_8_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8371}\qquad $\Delta r$: -0.0153\qquad Improved: 16/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_8. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 9 --- [32, 32] Sigmoid}\begin{canvas}\node[smalltxt] at (0.85,1.55) {100 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_9_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_9_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8276}\qquad $\Delta r$: -0.0247\qquad Improved: 15/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_9. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 10 --- [32, 32] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {500 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_10_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_10_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8511}\qquad $\Delta r$: -0.0013\qquad Improved: 20/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_10. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 11 --- [32, 32] Sigmoid}\begin{canvas}\node[smalltxt] at (0.85,1.55) {500 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_11_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_11_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8377}\qquad $\Delta r$: -0.0147\qquad Improved: 16/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_11. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 12 --- $5\times128$ Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {5,000 epochs; Adam 0.001; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_12_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_12_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8605}\qquad $\Delta r$: +0.0081\qquad Improved: 27/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_12. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 13 --- $5\times128$ Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {5,000 epochs; Adam 0.0003; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_13_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_13_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8620}\qquad $\Delta r$: +0.0096\qquad Improved: 31/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_13. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 14 --- [32] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {5,000 epochs; Adam 0.0003; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_14_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_14_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8577}\qquad $\Delta r$: +0.0053\qquad Improved: 26/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_14. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+\begin{frame}[t]{Run 15 --- [32, 32] Tanh}\begin{canvas}\node[smalltxt] at (0.85,1.55) {5,000 epochs; Adam 0.0003; seed 7};\node[txt] at (0.35,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_15_training_curves.png}};\node[txt] at (8.0,2.2) {\includegraphics[width=7.45cm,height=4.45cm,keepaspectratio]{../figures/run_15_spectra_across_subjects.png}};\node[smalltxt,text width=14cm] at (0.85,6.75) {Held-out $r$: \textbf{0.8599}\qquad $\Delta r$: +0.0075\qquad Improved: 29/36 subjects};\node[labeltxt,text width=14cm] at (0.85,7.45) {Left: training loss for each fold and their mean. Right: normalized spectral shape, mean $\pm$ SD across subjects.};\end{canvas}\note{Source: results/experiments/basic\_mlp\_15. The spectral plot averages normalized regions within subject, then subjects equally. SD is across subjects, not a confidence interval. Training loss is before each optimizer step.}\end{frame}
+
+
+\begin{frame}[t]{Paired comparisons}
+\begin{canvas}
+\node[smalltxt,text width=13.8cm] at (0.85,1.5) {Each subject has two model scores. Pair them within subject so that the comparison accounts for differences between subjects.\\[0.25cm]Transform correlations with $z=\operatorname{atanh}(r)$. A two-sided paired $t$-test asks whether the mean within-subject difference in $z$ differs from zero.};
+\node[labeltxt,text width=14cm] at (0.85,3.5) {Run 12: $5\times128$ Tanh, 5,000 epochs. Run 6: [32] Tanh, 500 epochs. Both Adam $10^{-3}$.};
+\node[txt,text width=14cm,align=center] at (0.85,4.15) {\renewcommand{\arraystretch}{1.2}\begin{tabular}{l r r}\toprule Comparison & $t(35)$ & Unadjusted $p$\\\midrule Run 12 vs. analytical & 3.34558 & 0.0019701\\ Run 12 vs. run 6 & 3.44497 & 0.00150048\\\bottomrule\end{tabular}};
+\node[smalltxt,text width=13.8cm] at (0.85,6.65) {Positive $t$ values favor run 12. Both tests support a positive average difference.\\[0.2cm]Exploratory comparisons: this cohort informed model choices, and CV training sets overlap.};
+\end{canvas}\note{Source: results/analysis/retrospective-statistics.json. These values are saved analysis, not newly rerun statistics.}\end{frame}
+
+
+
+\begin{frame}[t]{Nested cross-validation --- Subject flow}
+\begin{canvas}
+\node[smalltxt] at (0.85,1.5) {Repeat this procedure for each of five outer folds.};
+\node[txt,draw=DeckNavy,rounded corners,inner sep=0.2cm,text width=4cm,align=center] (all) at (0.85,2.3) {36 subjects};
+\node[txt,draw=DeckBlue,rounded corners,inner sep=0.2cm,text width=4cm,align=center] (train) at (6.3,2.3) {28 or 29 outer training subjects};
+\node[txt,draw=DeckGold,rounded corners,inner sep=0.2cm,text width=4cm,align=center] (test) at (0.85,4.1) {7 or 8 reserved test subjects};
+\draw[arr] (all.east) -- (train.west);
+\draw[arr] (all.south) -- (test.north);
+\uncover<2->{\node[txt,draw=DeckGreen,rounded corners,inner sep=0.2cm,text width=7.1cm,align=center] (inner) at (6.3,4.1) {Five inner folds, six configurations\\Fresh fits; pool validation scores by subject};
+\draw[arr] (train.south) -- (inner.north);}
+\uncover<3->{\node[txt,draw=DeckBlue,rounded corners,inner sep=0.2cm,text width=7.1cm,align=center] (refit) at (6.3,6.1) {Select settings $\rightarrow$ fresh outer refit\\Evaluate reserved subjects once};
+\draw[arr] (inner.south) -- (refit.north);
+\draw[arr] (test.south) |- (refit.west);}
+\end{canvas}\end{frame}
+
+
+\begin{frame}[t]{Nested evaluation for model selection}\begin{canvas}\node[txt,text width=14cm,align=center] at (0.85,1.55) {\small\renewcommand{\arraystretch}{1.35}\begin{tabular}{r l r r}\toprule Run & Hidden layers & Epochs & Adam learning rate\\\midrule6 & [32] & 500 & 0.001 \\
+10 & [32, 32] & 500 & 0.001 \\
+12 & $5\times128$ & 5,000 & 0.001 \\
+13 & $5\times128$ & 5,000 & 0.0003 \\
+14 & [32] & 5,000 & 0.0003 \\
+15 & [32, 32] & 5,000 & 0.0003 \\\bottomrule\end{tabular}};\node[labeltxt,text width=14cm,align=center] at (0.85,6.8) {All Tanh; frequency scale $2\pi\cdot45$; training seed 7; split seed 1701.\\Five outer folds $\times$ six candidates $\times$ five inner folds + five refits = 155 fits.};\end{canvas}\end{frame}
+
+\begin{frame}[t]{Nested CV --- Compare configurations}
+\begin{canvas}
+\only<1>{\stepcontent{1) Prepare subject splits}{Reserve 7 or 8 subjects for the outer test.\\[0.35cm]Split the remaining 28 or 29 subjects into five inner folds for model selection.\\[0.35cm]Keep the outer test subjects separate throughout selection.}{nested_prepare}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{nested_cross_validate}}}
+\only<2>{\stepcontent{2) Fit each candidate on each inner split}{Train all six configurations on each inner split. Each fit starts with fresh weights.\\[0.35cm]Use only the inner training subjects in the loss. Hold the inner validation subjects aside.}{nested_fit}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{nested_cross_validate}}}
+\only<3>{\stepcontent{3) Score the inner validation subjects}{Evaluate each model on its inner validation subjects.\\[0.35cm]Across five inner folds, each outer training subject receives one validation score per configuration.}{nested_validate}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{nested_cross_validate}}}
+\end{canvas}
+\note{Code excerpts follow the current repository. Line wrapping and explicitly marked omissions are for readability.}
+\end{frame}
+
+\begin{frame}[t]{Nested CV --- Select, refit, and test}
+\begin{canvas}
+\only<1>{\stepcontent{4) Average validation scores by subject}{For each configuration, average its inner validation scores:\\[0.3cm]$\bar r_c=\dfrac{1}{|T|}\sum_{s\in T}r_{c,s}$.\\[0.35cm]$T$ contains the outer training subjects. Each subject has equal weight.}{nested_means}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{select_candidate}}}
+\only<2>{\stepcontent{5) Choose the configuration}{Choose the configuration with the highest mean inner validation correlation.\\[0.35cm]Only these validation scores determine the winner.}{nested_select}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{select_candidate}}}
+\only<3>{\stepcontent{6) Refit from fresh weights}{Train a new model with the selected settings on all 28 or 29 outer training subjects.\\[0.35cm]Use fresh weights and the selected training budget.}{nested_refit}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{nested_cross_validate}}}
+\only<4>{\stepcontent{7) Evaluate the reserved outer subjects}{Compare the selected MLP and analytical filter on the reserved test subjects.\\[0.35cm]Repeat for all five outer folds. Each of 36 subjects contributes one held-out score to the final result.}{nested_test}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{nested_cross_validate}}}
+\end{canvas}
+\note{Code excerpts follow the current repository. Line wrapping and explicitly marked omissions are for readability.}
+\end{frame}
+
+\begin{frame}[t]{Nested CV --- Save results}
+\begin{canvas}
+\only<1>{\stepcontent{8) Save folds, predictions, and checkpoints}{Save the selected settings, fitted weights, loss curves, and held-out predictions.\\[0.35cm]Keep the subject splits and inner scores so the selection can be checked later.}{nested_save}{\code{mlp/training/nested_cv.py}\\[0.12cm]\code{nested_cross_validate}}}
+\end{canvas}
+\note{Code excerpts follow the current repository. Line wrapping and explicitly marked omissions are for readability.}
+\end{frame}
+
+
+\begin{frame}[t]
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.5) {All six configurations enter model selection in each outer fold.\\[0.2cm]Scores below pool the five inner validation folds, with equal weight per subject.};
+\node[txt,text width=14cm,align=center] at (0.85,2.65) {\small\renewcommand{\arraystretch}{1.05}\begin{tabular}{r r r r r r r}\toprule Run & Fold 1 & Fold 2 & Fold 3 & Fold 4 & Fold 5 & Selected\\\midrule
+6 & 0.8553 & 0.8512 & 0.8576 & 0.8578 & 0.8573 & 0\\
+10 & 0.8498 & 0.8449 & 0.8519 & 0.8520 & 0.8541 & 0\\
+12 & \textbf{0.8598} & \textbf{0.8546} & 0.8630 & 0.8632 & \textbf{0.8640} & 3\\
+13 & 0.8561 & 0.8474 & \textbf{0.8642} & \textbf{0.8642} & 0.8636 & 2\\
+14 & 0.8562 & 0.8523 & 0.8597 & 0.8595 & 0.8590 & 0\\
+15 & 0.8569 & 0.8535 & 0.8618 & 0.8617 & 0.8610 & 0\\
+\bottomrule\end{tabular}};
+\node[smalltxt,text width=14cm] at (0.85,6.6) {\textbf{Bold: highest inner score in that outer fold.} Only the winner receives a fresh outer refit and evaluation on reserved subjects.};
+\node[labeltxt,text width=14cm] at (0.85,7.65) {These are inner validation scores used for selection. The next five slides show the selected models on each reserved outer fold.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- All candidates};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: tables/candidate\_selection.csv. Each column summarizes a different outer training set. This completed protocol contains outer test predictions only for the selected configuration, not all six candidates. The table does not establish an independently tested ranking of every candidate.}\end{frame}
+
+
+\begin{frame}[t]
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.5) {\textbf{Selected by inner validation: Run 12.} Train: 28 subjects; test: 8 subjects.\\[0.18cm]$5\times128$ Tanh; 5,000 epochs; Adam 0.001; training seed 7.};
+\node[txt,text width=7cm,align=center] at (0.65,2.75) {\footnotesize\renewcommand{\arraystretch}{0.94}\begin{tabular}{l r r r}\toprule Subject & Analytical $r$ & MLP $r$ & $\Delta r$\\\midrule
+8028.101 & 0.8127 & 0.8351 & +0.0224\\
+8033.101 & 0.8441 & 0.8449 & +0.0008\\
+8045.101 & 0.9108 & 0.9147 & +0.0039\\
+8048.101 & 0.8426 & 0.8565 & +0.0139\\
+8069.101 & 0.8613 & 0.8840 & +0.0227\\
+8131.101 & 0.8581 & 0.8836 & +0.0255\\
+8273.101 & 0.8374 & 0.8368 & -0.0006\\
+8321.101 & 0.8609 & 0.8939 & +0.0330\\
+\bottomrule\end{tabular}};
+\node[txt] at (8.0,2.75) {\includegraphics[width=7.45cm,height=3.95cm,keepaspectratio]{../figures/nested_fold_1_spectra.png}};
+\node[smalltxt,text width=14cm] at (0.85,6.8) {Mean analytical $r$: \textbf{0.8535}\qquad Selected MLP $r$: \textbf{0.8687}\qquad Gain: \textbf{+0.0152}};
+\node[labeltxt,text width=14cm] at (0.85,7.55) {7/8 subjects improved. Spectra: mean $\pm$ sample SD across held-out subjects, with equal subject weight.\\Outer test subjects did not enter MLP fitting or model selection. SGM parameters remain MEG-fitted.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Outer fold 1};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: collected nested results, outer subject scores, saved outer predictions, and the frozen cohort cache. This slide summarizes this fold only. The selected model uses fresh outer-refit weights. Spectra normalize regions before averaging regions within subject, then weight subjects equally. Bands show sample SD, not confidence intervals. No model fitting or checkpoint inference ran for this slide.}\end{frame}
+
+
+
+\begin{frame}[t]
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.5) {\textbf{Selected by inner validation: Run 12.} Train: 29 subjects; test: 7 subjects.\\[0.18cm]$5\times128$ Tanh; 5,000 epochs; Adam 0.001; training seed 7.};
+\node[txt,text width=7cm,align=center] at (0.65,2.75) {\footnotesize\renewcommand{\arraystretch}{0.94}\begin{tabular}{l r r r}\toprule Subject & Analytical $r$ & MLP $r$ & $\Delta r$\\\midrule
+8047.101 & 0.8324 & 0.8416 & +0.0093\\
+8076.101 & 0.8079 & 0.8379 & +0.0300\\
+8109.101 & 0.8601 & 0.8809 & +0.0208\\
+8111.101 & 0.8915 & 0.8926 & +0.0011\\
+8132.101 & 0.8937 & 0.9070 & +0.0133\\
+8161.101 & 0.8515 & 0.8660 & +0.0146\\
+8188.101 & 0.9242 & 0.9236 & -0.0006\\
+\bottomrule\end{tabular}};
+\node[txt] at (8.0,2.75) {\includegraphics[width=7.45cm,height=3.95cm,keepaspectratio]{../figures/nested_fold_2_spectra.png}};
+\node[smalltxt,text width=14cm] at (0.85,6.8) {Mean analytical $r$: \textbf{0.8659}\qquad Selected MLP $r$: \textbf{0.8785}\qquad Gain: \textbf{+0.0126}};
+\node[labeltxt,text width=14cm] at (0.85,7.55) {6/7 subjects improved. Spectra: mean $\pm$ sample SD across held-out subjects, with equal subject weight.\\Outer test subjects did not enter MLP fitting or model selection. SGM parameters remain MEG-fitted.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Outer fold 2};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: collected nested results, outer subject scores, saved outer predictions, and the frozen cohort cache. This slide summarizes this fold only. The selected model uses fresh outer-refit weights. Spectra normalize regions before averaging regions within subject, then weight subjects equally. Bands show sample SD, not confidence intervals. No model fitting or checkpoint inference ran for this slide.}\end{frame}
+
+
+
+\begin{frame}[t]
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.5) {\textbf{Selected by inner validation: Run 13.} Train: 29 subjects; test: 7 subjects.\\[0.18cm]$5\times128$ Tanh; 5,000 epochs; Adam 0.0003; training seed 7.};
+\node[txt,text width=7cm,align=center] at (0.65,2.75) {\footnotesize\renewcommand{\arraystretch}{0.94}\begin{tabular}{l r r r}\toprule Subject & Analytical $r$ & MLP $r$ & $\Delta r$\\\midrule
+8027.101 & 0.7936 & 0.8057 & +0.0121\\
+8067.101 & 0.8468 & 0.8345 & -0.0122\\
+8107.101 & 0.8489 & 0.8550 & +0.0061\\
+8125.101 & 0.8098 & 0.8227 & +0.0128\\
+8186.101 & 0.8607 & 0.8688 & +0.0081\\
+8231.101 & 0.8936 & 0.9058 & +0.0121\\
+8302.102 & 0.8505 & 0.8645 & +0.0140\\
+\bottomrule\end{tabular}};
+\node[txt] at (8.0,2.75) {\includegraphics[width=7.45cm,height=3.95cm,keepaspectratio]{../figures/nested_fold_3_spectra.png}};
+\node[smalltxt,text width=14cm] at (0.85,6.8) {Mean analytical $r$: \textbf{0.8434}\qquad Selected MLP $r$: \textbf{0.8510}\qquad Gain: \textbf{+0.0076}};
+\node[labeltxt,text width=14cm] at (0.85,7.55) {6/7 subjects improved. Spectra: mean $\pm$ sample SD across held-out subjects, with equal subject weight.\\Outer test subjects did not enter MLP fitting or model selection. SGM parameters remain MEG-fitted.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Outer fold 3};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: collected nested results, outer subject scores, saved outer predictions, and the frozen cohort cache. This slide summarizes this fold only. The selected model uses fresh outer-refit weights. Spectra normalize regions before averaging regions within subject, then weight subjects equally. Bands show sample SD, not confidence intervals. No model fitting or checkpoint inference ran for this slide.}\end{frame}
+
+
+
+\begin{frame}[t]
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.5) {\textbf{Selected by inner validation: Run 13.} Train: 29 subjects; test: 7 subjects.\\[0.18cm]$5\times128$ Tanh; 5,000 epochs; Adam 0.0003; training seed 7.};
+\node[txt,text width=7cm,align=center] at (0.65,2.75) {\footnotesize\renewcommand{\arraystretch}{0.94}\begin{tabular}{l r r r}\toprule Subject & Analytical $r$ & MLP $r$ & $\Delta r$\\\midrule
+8051.101 & 0.8572 & 0.8601 & +0.0029\\
+8065.101 & 0.8258 & 0.7716 & -0.0542\\
+8072.101 & 0.8615 & 0.8849 & +0.0233\\
+8074.101 & 0.8532 & 0.8631 & +0.0099\\
+8168.101 & 0.8749 & 0.8852 & +0.0102\\
+8257.101 & 0.8452 & 0.8463 & +0.0012\\
+8324.101 & 0.8563 & 0.8694 & +0.0131\\
+\bottomrule\end{tabular}};
+\node[txt] at (8.0,2.75) {\includegraphics[width=7.45cm,height=3.95cm,keepaspectratio]{../figures/nested_fold_4_spectra.png}};
+\node[smalltxt,text width=14cm] at (0.85,6.8) {Mean analytical $r$: \textbf{0.8534}\qquad Selected MLP $r$: \textbf{0.8544}\qquad Gain: \textbf{+0.0009}};
+\node[labeltxt,text width=14cm] at (0.85,7.55) {6/7 subjects improved. Spectra: mean $\pm$ sample SD across held-out subjects, with equal subject weight.\\Outer test subjects did not enter MLP fitting or model selection. SGM parameters remain MEG-fitted.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Outer fold 4};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: collected nested results, outer subject scores, saved outer predictions, and the frozen cohort cache. This slide summarizes this fold only. The selected model uses fresh outer-refit weights. Spectra normalize regions before averaging regions within subject, then weight subjects equally. Bands show sample SD, not confidence intervals. No model fitting or checkpoint inference ran for this slide.}\end{frame}
+
+
+
+\begin{frame}[t]
+\begin{canvas}
+\node[smalltxt,text width=14cm] at (0.85,1.5) {\textbf{Selected by inner validation: Run 12.} Train: 29 subjects; test: 7 subjects.\\[0.18cm]$5\times128$ Tanh; 5,000 epochs; Adam 0.001; training seed 7.};
+\node[txt,text width=7cm,align=center] at (0.65,2.75) {\footnotesize\renewcommand{\arraystretch}{0.94}\begin{tabular}{l r r r}\toprule Subject & Analytical $r$ & MLP $r$ & $\Delta r$\\\midrule
+8002.101 & 0.8496 & 0.8662 & +0.0166\\
+8008.101 & 0.8819 & 0.8832 & +0.0013\\
+8012.101 & 0.9087 & 0.8962 & -0.0125\\
+8088.101 & 0.8384 & 0.8877 & +0.0493\\
+8089.101 & 0.8678 & 0.8847 & +0.0169\\
+8135.101 & 0.7128 & 0.7183 & +0.0055\\
+8166.101 & 0.8599 & 0.8731 & +0.0132\\
+\bottomrule\end{tabular}};
+\node[txt] at (8.0,2.75) {\includegraphics[width=7.45cm,height=3.95cm,keepaspectratio]{../figures/nested_fold_5_spectra.png}};
+\node[smalltxt,text width=14cm] at (0.85,6.8) {Mean analytical $r$: \textbf{0.8456}\qquad Selected MLP $r$: \textbf{0.8585}\qquad Gain: \textbf{+0.0129}};
+\node[labeltxt,text width=14cm] at (0.85,7.55) {6/7 subjects improved. Spectra: mean $\pm$ sample SD across held-out subjects, with equal subject weight.\\Outer test subjects did not enter MLP fitting or model selection. SGM parameters remain MEG-fitted.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Outer fold 5};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: collected nested results, outer subject scores, saved outer predictions, and the frozen cohort cache. This slide summarizes this fold only. The selected model uses fresh outer-refit weights. Spectra normalize regions before averaging regions within subject, then weight subjects equally. Bands show sample SD, not confidence intervals. No model fitting or checkpoint inference ran for this slide.}\end{frame}
+
+
+
+
+\begin{frame}[t]
+\begin{canvas}
+
+\node[smalltxt,text width=14cm] at (0.85,1.5) {Analytical $r$: \textbf{0.8524}\qquad Selected MLP $r$: \textbf{0.8624}\qquad Gain: \textbf{+0.0100}};
+\node[txt] at (0.65,2.15) {\includegraphics[width=14.65cm,height=4.05cm,keepaspectratio]{../figures/nested_held_out_scores.png}};
+\node[smalltxt,text width=14cm] at (0.85,6.15) {\textbf{31/36 subjects improved.} All five outer folds had a positive mean gain.\\[0.18cm]Paired Fisher-$z$: $t(35)=4.132$, unadjusted $p=0.000213$.};
+\node[labeltxt,text width=14cm] at (0.85,7.4) {Mean paired Fisher-$z$ difference: 0.0405; nominal 95\% CI [0.0206, 0.0605].\\Exploratory inference: overlapping training sets and earlier cohort-informed choices limit independence.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Performance};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Source: nested\_fivefold\_six\_20261024\_v1. Each subject has one outer prediction. Statistics are the saved paired test on Fisher-transformed subject mean regional correlations. The interval uses Fisher-z difference units, not raw-r units.}\end{frame}
+
+\begin{frame}[t]
+\begin{canvas}
+
+\node[smalltxt,text width=14cm] at (0.85,1.5) {Runs 12 and 13: $5\times128$ Tanh, 5,000 epochs, training seed 7.};
+\node[txt,text width=6.2cm] at (0.75,2.35) {\small\renewcommand{\arraystretch}{1.15}\begin{tabular}{r r r r}\toprule Fold & Test $n$ & Run & Inner $r$\\\midrule
+1 & 8 & 12 & 0.8598\\
+2 & 7 & 12 & 0.8546\\
+3 & 7 & 13 & 0.8642\\
+4 & 7 & 13 & 0.8642\\
+5 & 7 & 12 & 0.8640\\
+\bottomrule\end{tabular}};
+\node[txt] at (7.1,2.2) {\includegraphics[width=8.25cm,height=4.5cm,keepaspectratio]{../figures/nested_training_curves.png}};
+\node[smalltxt,text width=6.2cm] at (0.85,6.0) {\textbf{Run 12:} Adam $10^{-3}$.\\[0.2cm]\textbf{Run 13:} Adam $3\times10^{-4}$.};
+\node[labeltxt,text width=14cm] at (0.85,7.25) {Inner $r$ selects settings; outer scores evaluate the selection procedure. Other candidates won no folds.\\Each loss curve represents one fresh outer refit. Loss is measured before the update; the mean uses matching epoch grids.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Selection and training};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Selection counts describe this candidate set, split seed 1701, and training seed 7. Architecture and training-budget differences prevent attributing the advantage to depth alone. The two winning configurations differ only in learning rate.}\end{frame}
+
+\begin{frame}[t]
+\begin{canvas}
+
+\node[txt] at (0.3,1.65) {\includegraphics[width=8.9cm,height=5.65cm,keepaspectratio]{../figures/nested_spectra_across_subjects.png}};
+\node[smalltxt,text width=5.7cm] at (9.45,1.65) {\textbf{A modest gain across most subjects}\\[0.25cm]31 of 36 subjects improved.\\[0.25cm]\textbf{Largest gain:} 8088.101, $\Delta r=+0.0493$.\\[0.18cm]\textbf{Largest loss:} 8065.101, $\Delta r=-0.0542$.\\[0.25cm]One training seed; initialization robustness remains untested.};
+\node[labeltxt,text width=14cm] at (0.85,7.3) {Normalized spectra: mean $\pm$ sample SD across subjects, not confidence intervals.\\The cohort informed prior choices. Fixed SGM parameters were fitted using MEG. This evaluates spectral shape; absolute-power calibration and structure-only prediction remain unestablished.};
+\node[txt,font=\Large\bfseries,text width=14.5cm] at (0.75,0.4) {Nested results --- Spectra and interpretation};
+\draw[DeckGreen,line width=1.5pt] (0.75,1.02) -- (2.05,1.02);
+\end{canvas}\note{Nested models train on 28 or 29 outer subjects; historical LOOCV models train on 35. Their scores describe different evaluation procedures, so a numerical comparison does not establish a direct performance advantage. The subject examples are the maximum and minimum raw-r gains selected after evaluation. No new experiment or checkpoint replay was performed for this slide update.}\end{frame}
+
+\end{document}
