@@ -25,5 +25,3 @@ sgm_stimulate_torch.py
 
 # Each local experiment includes its cache, checkpoints, tables, and figures.
 /results/
-
-/artifacts/
