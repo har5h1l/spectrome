@@ -6,6 +6,15 @@ Read [`agent_docs/README.md`](agent_docs/README.md), then follow its read order.
 
 `agent_docs/` is local-only and Git-ignored. Treat it as the current project context, but do not assume it is shared, backed up, or synced to the server. Do not duplicate its contents in another active-docs folder.
 
+## Live project status
+
+Refresh [`agent_docs/active/active.md`](agent_docs/active/active.md) after each
+meaningful checkpoint and before handing back substantive work, including
+partial or blocked work. Update `state.md` or `blockers.md` when verified
+project state or blockers change. Record the next action and link the
+experiment artifacts or meeting notes. Reread the ignored notes before
+editing to preserve parallel work.
+
 ## Basic working notes
 
 - Check the current code, saved artifacts, and Git status before making claims or changes. Active notes can lag behind the checkout.
